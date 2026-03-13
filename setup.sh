@@ -1309,22 +1309,25 @@ Requires=docker.service
 Wants=network-online.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=simple
 
 # Step 1: Set up FUSE mount propagation (required for rclone WebDAV in Decypharr)
 # Prefixed with - to tolerate already-mounted state (idempotent)
 ExecStartPre=-$(command -v mount) --bind "${MOUNT_DIR}" "${MOUNT_DIR}"
 ExecStartPre=-$(command -v mount) --make-shared "${MOUNT_DIR}"
 
-# Step 2: Start all containers
-ExecStart=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
+# Step 2: Start all containers (foreground so systemd tracks the process)
+ExecStart=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up --remove-orphans
 
 # On stop: bring containers down gracefully
 ExecStop=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" stop
 
+Restart=on-failure
+RestartSec=10
+
 WorkingDirectory="${INSTALL_DIR}"
 TimeoutStartSec=120
+TimeoutStopSec=60
 
 [Install]
 WantedBy=multi-user.target
