@@ -287,20 +287,18 @@ Decypharr is the critical bridge between your media managers and TorBox. **Nothi
 
 ### Step 2: Set Up Prowlarr Indexers (~5 minutes)
 
-Prowlarr manages your torrent indexers (the sites where torrents are found). The script already connected Byparr, Radarr, and Sonarr — you just need to add indexer sites.
+Prowlarr manages your torrent indexers (the sites where torrents are found). The script already connected Byparr, Radarr, and Sonarr — and pre-added **1337x** as a default indexer.
 
 1. Open **http://localhost:9696**
-2. **Set up authentication first** (important!):
+2. **Create login credentials** (important!):
    - Go to **Settings → General**
-   - Under **Authentication**, select **Forms (Login Page)**
-   - Enter a **username** and **password**
+   - Authentication is already set to **Forms (Login Page)** — just enter a **username** and **password**
    - Click **Save Changes** at the top
 
-   > ⚠️ Authentication is disabled for local addresses by default to allow the setup script's API calls to work. You should enable it now for security.
+   > ⚠️ Authentication is disabled for local addresses by default to allow the setup script's API calls to work. You should set up credentials now for security.
 
-3. Go to **Indexers → Add Indexer** (the `+` button)
-4. Search for and add torrent indexers you want to use. Some popular public options:
-   - **1337x** — General purpose, large catalog
+3. **1337x is already configured** as a default indexer. To add more, go to **Indexers → Add Indexer** (the `+` button)
+4. Search for and add additional indexers you want. Some popular public options:
    - **EZTV** — Specializes in TV shows
    - **TorrentGalaxy** — General purpose
    - **LimeTorrents** — Movies and TV shows
@@ -311,7 +309,7 @@ Prowlarr manages your torrent indexers (the sites where torrents are found). The
 5. (Optional) Verify Radarr and Sonarr connections:
    - Go to **Settings → Apps** — you should see Radarr and Sonarr already listed with green checkmarks
 
-**✅ What success looks like:** Indexers page shows your added sites with green status icons. Settings → Apps shows Radarr and Sonarr connected.
+**✅ What success looks like:** Indexers page shows 1337x and any additional sites with green status icons. Settings → Apps shows Radarr and Sonarr connected.
 
 > **Tip:** If an indexer is behind Cloudflare, the Byparr proxy handles it automatically — no extra configuration needed.
 
@@ -319,13 +317,12 @@ Prowlarr manages your torrent indexers (the sites where torrents are found). The
 
 ### Step 3: Verify Radarr (~2 minutes)
 
-Radarr manages your movie library. The script already configured everything — you just need to set up authentication and verify.
+Radarr manages your movie library. The script already configured everything — you just need to create login credentials and verify.
 
 1. Open **http://localhost:7878**
-2. **Set up authentication:**
+2. **Create login credentials:**
    - Go to **Settings → General**
-   - Under **Security**, set Authentication to **Forms (Login Page)**
-   - Enter a **username** and **password**
+   - Authentication is already set to **Forms (Login Page)** — just enter a **username** and **password**
    - Click **Save Changes**
 3. Verify the auto-configuration worked:
    - **Settings → Download Clients** → you should see **Decypharr** listed
@@ -346,10 +343,9 @@ Radarr manages your movie library. The script already configured everything — 
 Sonarr manages your TV show library. Same auto-configuration as Radarr.
 
 1. Open **http://localhost:8989**
-2. **Set up authentication:**
+2. **Create login credentials:**
    - Go to **Settings → General**
-   - Under **Security**, set Authentication to **Forms (Login Page)**
-   - Enter a **username** and **password**
+   - Authentication is already set to **Forms (Login Page)** — just enter a **username** and **password**
    - Click **Save Changes**
 3. Verify the auto-configuration worked:
    - **Settings → Download Clients** → you should see **Decypharr** listed
@@ -373,8 +369,9 @@ Sonarr manages your TV show library. Same auto-configuration as Radarr.
    - If not, you'll be prompted to claim it now
 3. Complete the initial setup wizard:
    - Give your server a name
-   - Skip the "Add Library" step for now (we'll do it properly next)
-4. After the wizard, go to **Settings → Libraries → Add Library**:
+   - **Libraries are auto-added** if you provided a claim token during setup — just verify they exist after the wizard
+4. If libraries are missing (e.g., no claim token was provided), add them manually:
+   - Go to **Settings → Libraries → Add Library**
    - Click **Add Library** → **Movies** → Add folder → browse to `/data/media/movies` → **Add Library**
    - Click **Add Library** → **TV Shows** → Add folder → browse to `/data/media/tv` → **Add Library**
 5. Recommended settings:
@@ -399,46 +396,24 @@ Sonarr manages your TV show library. Same auto-configuration as Radarr.
 
 ---
 
-### Step 6: Set Up Seerr (~5 minutes)
+### Step 6: Verify Seerr (~2 minutes)
 
-Seerr provides a beautiful frontend where you (and optionally your family/friends) can browse and request movies and TV shows.
-
-> **Remember:** When entering server addresses inside Seerr, use **container names** (like `radarr`) not `localhost`, because Seerr connects to other services through Docker's internal network.
+Seerr provides a beautiful frontend where you (and optionally your family/friends) can browse and request movies and TV shows. The setup script pre-configured Radarr, Sonarr, and your media server connection.
 
 1. Open **http://localhost:5055**
 2. Sign in:
    - **Plex users:** Click "Sign In with Plex" and authorize with your Plex account, then select your Plex server from the list.
-     > When prompted for the Plex server URL, use `http://plex:32400` — Plex and Seerr are on the same Docker network, so the container name works directly.
+     > The Plex server connection is pre-configured — when prompted for the URL, it should already show `http://plex:32400`.
    - **Jellyfin users:** Click "Use Jellyfin" → enter your Jellyfin server URL as `http://jellyfin:8096` → sign in with your Jellyfin admin credentials
-3. Add **Radarr** (movies):
-   - Click **Add Radarr Server**
-   - **Default Server:** ✅ (check this)
-   - **Server Name:** `Radarr`
-   - **Hostname or IP Address:** `radarr` ← (container name, NOT localhost!)
-   - **Port:** `7878`
-   - **API Key:** *(your Radarr API key — see below how to find it)*
-   - Click **Test** — you should see a green checkmark
-   - Select a **Quality Profile** (e.g., "HD-1080p")
-   - Select a **Root Folder** (`/data/media/movies`)
-   - Click **Add Server**
-4. Add **Sonarr** (TV shows):
-   - Click **Add Sonarr Server**
-   - **Default Server:** ✅ (check this)
-   - **Server Name:** `Sonarr`
-   - **Hostname or IP Address:** `sonarr` ← (container name, NOT localhost!)
-   - **Port:** `8989`
-   - **API Key:** *(your Sonarr API key — see below how to find it)*
-   - Click **Test** — you should see a green checkmark
-   - Select a **Quality Profile** (e.g., "HD-1080p")
-   - Select a **Root Folder** (`/data/media/tv`)
-   - Click **Add Server**
-5. Click **Finish Setup**
+     > The Jellyfin server connection is pre-configured — just sign in to complete the setup.
+3. Verify the pre-configured connections:
+   - **Settings → Radarr** — should show a connected Radarr server with a green checkmark
+   - **Settings → Sonarr** — should show a connected Sonarr server with a green checkmark
+4. Click **Finish Setup**
 
-> **Finding your API keys:** The setup script printed them at the end, and they're stored in the `.env` file:
-> ```bash
-> grep API_KEY torbox-media-server/.env
-> ```
-> You can also find each service's API key in its web UI: **Settings → General → API Key**.
+> **If Radarr/Sonarr aren't connected:** Re-run `./setup.sh` — it detects existing installations and re-configures. Or add them manually:
+> - **Radarr:** Hostname `radarr`, Port `7878`, API key from `./manage.sh keys`, Root Folder `/data/media/movies`
+> - **Sonarr:** Hostname `sonarr`, Port `8989`, API key from `./manage.sh keys`, Root Folder `/data/media/tv`
 
 **✅ What success looks like:** Seerr's main page shows a search bar and "Discover" section with trending movies and shows.
 
@@ -547,7 +522,7 @@ For remote access outside your home network, use a reverse proxy like [Caddy](ht
 ## Security Notes
 
 - **Ports are bound to `127.0.0.1`** by default, preventing LAN/WAN exposure of admin UIs
-- **Authentication is set to `DisabledForLocalAddresses`** after setup to allow API auto-configuration — **you should enable full authentication** in each service's Settings → General → Authentication after the initial setup (see Steps 2–4 in the walkthrough above)
+- **Authentication is set to `Forms` with `DisabledForLocalAddresses`** after setup — **you must create login credentials** in each service's Settings → General before exposing them to your LAN (see Steps 2–4 in the walkthrough above)
 - **The `.env` file** contains your TorBox API key and *arr API keys — it's `chmod 600` (owner-read only). Don't commit it to version control
 - **Only Decypharr** gets `SYS_ADMIN` capability and FUSE access — other containers only read files via symlinks
 - **Decypharr config is mounted read-only** — the config directory is bound as `:ro` to prevent containers from modifying their own configuration
