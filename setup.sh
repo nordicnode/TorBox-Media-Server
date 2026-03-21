@@ -113,8 +113,10 @@ run_with_spinner() {
     local msg="$1"; shift
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local tmpfile; tmpfile=$(mktemp)
-    # Ensure temp file cleanup on any exit
-    trap 'rm -f "$tmpfile"' RETURN
+    # Save existing RETURN trap and chain cleanup
+    local _old_return_trap
+    _old_return_trap="$(trap -p RETURN 2>/dev/null | sed "s/.*'\(.*\)'.*/\1/")" || true
+    trap 'rm -f "$tmpfile"; '"${_old_return_trap:+eval \"$_old_return_trap\";}"'' RETURN
     "$@" > "$tmpfile" 2>&1 &
     local pid=$! i=0
     while kill -0 "$pid" 2>/dev/null; do
@@ -1877,7 +1879,8 @@ configure_seerr() {
     [[ -z "$seerr_settings" ]] && { log_warn "  Could not retrieve Seerr settings."; return 1; }
 
     # Check if Radarr is already configured
-    if echo "$seerr_settings" | grep -q '"radarr"'; then
+    if echo "$seerr_settings" | grep -q '"hostname":"radarr"' 2>/dev/null || \
+       echo "$seerr_settings" | grep -q '"hostname": "radarr"' 2>/dev/null; then
         log_info "  Seerr already has Radarr configured."
     else
         # Add Radarr to Seerr
@@ -1904,7 +1907,8 @@ configure_seerr() {
     fi
 
     # Check if Sonarr is already configured
-    if echo "$seerr_settings" | grep -q '"sonarr"'; then
+    if echo "$seerr_settings" | grep -q '"hostname":"sonarr"' 2>/dev/null || \
+       echo "$seerr_settings" | grep -q '"hostname": "sonarr"' 2>/dev/null; then
         log_info "  Seerr already has Sonarr configured."
     else
         # Add Sonarr to Seerr
@@ -2112,10 +2116,6 @@ configure_arr_auth() {
     local auth_id
     auth_id=$(echo "$auth_config" | python3 -c "import json,sys; print(json.loads(sys.stdin.read())['id'])" 2>/dev/null) || true
     [[ -z "$auth_id" ]] && { log_warn "  Could not parse ${name} auth config ID."; return 1; }
-
-    # Generate a random default password
-    local default_password
-    default_password=$(openssl rand -base64 12 2>/dev/null || head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 16)
 
     # Update auth config to Forms with DisabledForLocalAddresses
     local updated_auth
@@ -2390,8 +2390,11 @@ check_existing_installation() {
         echo "  Re-running will regenerate Docker Compose, configs, and systemd service."
         echo "  Your existing API keys will be PRESERVED to avoid breaking integrations."
         echo ""
-        read -rp "Continue with re-configuration? [y/N]: " rerun
-        if [[ "${rerun,,}" != "y" && "$NON_INTERACTIVE" != "true" ]]; then
+        local rerun="y"
+        if [[ "$NON_INTERACTIVE" != "true" ]]; then
+            read -rp "Continue with re-configuration? [y/N]: " rerun
+        fi
+        if [[ "${rerun,,}" != "y" ]]; then
             log_info "Setup cancelled. Your existing installation is unchanged."
             exit 0
         fi
@@ -2437,7 +2440,11 @@ start_services() {
     log_section "Starting Services"
 
     local start_now="y"
-    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+    if [[ -n "${TORBOX_START_SERVICES:-}" ]]; then
+        if [[ "${TORBOX_START_SERVICES}" == "false" ]]; then
+            start_now="n"
+        fi
+    elif [[ "$NON_INTERACTIVE" != "true" ]]; then
         read -rp "Start all services now? [Y/n]: " start_now
     fi
     if [[ "${start_now,,}" != "n" ]]; then

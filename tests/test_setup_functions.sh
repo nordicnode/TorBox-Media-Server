@@ -435,7 +435,7 @@ test_yes_flag_support() {
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local setup_file="${script_dir}/../setup.sh"
     [[ ! -f "$setup_file" ]] && setup_file="${script_dir}/setup.sh"
-    if grep -q '\-\-yes\|--non-interactive' "$setup_file"; then
+    if grep -Fq -- '--yes' "$setup_file"; then
         pass "--yes/--non-interactive flag is supported"
     else
         fail "--yes/--non-interactive flag not found in setup.sh"
