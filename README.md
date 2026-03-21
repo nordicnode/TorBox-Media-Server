@@ -131,7 +131,7 @@ The setup script checks for these and can install them automatically:
 ## Quick Start
 
 ```bash
-git clone <this-repo> && cd torbox-media-server
+git clone https://github.com/nordicnode/TorBox-Media-Server.git && cd TorBox-Media-Server
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -146,6 +146,7 @@ The script will interactively ask you for:
 | **Mount directory** | Press Enter for default (`/mnt/torbox-media`), or enter a custom path |
 | **User/Group IDs** | Press Enter to use auto-detected values (recommended) |
 | **Timezone** | Press Enter to use auto-detected timezone (recommended) |
+| **Hardware acceleration** | Choose `1` for Intel QuickSync, `2` for NVIDIA NVENC, or `3` for none |
 | **Start services?** | Press Enter or `Y` to start immediately (recommended) |
 
 Then the script automatically:
@@ -463,9 +464,10 @@ cd torbox-media-server/
 ./manage.sh status    # Check service status
 ./manage.sh logs      # View all logs (follow mode)
 ./manage.sh logs radarr  # View specific service logs
-./manage.sh update    # Pull latest images & restart
+./manage.sh update    # Pull pinned image versions & restart
 ./manage.sh down      # Stop and remove containers
 ./manage.sh urls      # Show all service URLs
+./manage.sh keys      # Show API keys (use with care)
 ./manage.sh enable    # Enable auto-start on boot
 ./manage.sh disable   # Disable auto-start on boot
 ```
@@ -494,6 +496,10 @@ torbox-media-server/
     │   └── tv/                  # Sonarr root folder (symlinks to cloud files)
     └── downloads/               # Decypharr symlinks landing zone
 ```
+
+The project root also contains:
+- `setup.sh` — Main installation and configuration script
+- `uninstall.sh` — Clean removal script (stop containers, remove configs, systemd service)
 
 ## Accessing From Other Devices
 
@@ -529,6 +535,7 @@ For remote access outside your home network, use a reverse proxy like [Caddy](ht
 - **Authentication is set to `DisabledForLocalAddresses`** after setup to allow API auto-configuration — **you should enable full authentication** in each service's Settings → General → Authentication after the initial setup (see Steps 2–4 in the walkthrough above)
 - **The `.env` file** contains your TorBox API key and *arr API keys — it's `chmod 600` (owner-read only). Don't commit it to version control
 - **Only Decypharr** gets `SYS_ADMIN` capability and FUSE access — other containers only read files via symlinks
+- **Decypharr config is mounted read-only** — the config directory is bound as `:ro` to prevent containers from modifying their own configuration
 
 ## Troubleshooting
 
@@ -621,9 +628,10 @@ If this doesn't work, check that both containers are running (`./manage.sh statu
 
 ### How do I find my API keys?
 
-API keys are stored in the `.env` file:
+Use the management script:
 ```bash
-cat torbox-media-server/.env | grep API_KEY
+cd torbox-media-server/
+./manage.sh keys
 ```
 
 Or view a specific service's API key in its web UI: Settings → General → API Key.
@@ -645,7 +653,7 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Seerr** instead of Overseerr — Overseerr was archived in 2024; Seerr is the merged successor supporting Plex, Jellyfin, and Emby
 - **Byparr** instead of FlareSolverr — FlareSolverr is currently non-functional (Cloudflare detects it); Byparr is a drop-in replacement using the same API
 - **Only Decypharr gets FUSE/SYS_ADMIN** — Plex/Jellyfin/Radarr/Sonarr only read files, they don't need elevated privileges
-- **Plex on bridge networking** — Plex runs on the same Docker bridge network as all other services, allowing Seerr to connect via container name (`http://plex:32400`). Port 32400 is exposed on all interfaces for LAN streaming. Host networking was avoided because many Linux firewalls (UFW, firewalld) block traffic from Docker bridge containers to the host, causing Seerr ↔ Plex connectivity failures
+- **Plex on bridge networking** — Plex runs on the same Docker bridge network as all other services, allowing Seerr to connect via container name (`http://plex:32400`). Port 32400 is exposed on all interfaces for LAN streaming. Host networking was avoided because many Linux firewalls (UFW, firewalld) block traffic from Docker bridge containers to the host, causing Seerr <-> Plex connectivity failures
 - **Plex notifications on Radarr/Sonarr** — triggers an instant Plex library scan when content is imported, upgraded, or deleted, so new media appears in seconds instead of waiting for Plex's periodic scan interval
 - **Ports bound to localhost** — prevents accidental LAN/WAN exposure of admin UIs
 - **Mount propagation** — uses `rshared` on Decypharr (the mount source) and `rslave` on media servers (consumers); a systemd service (`torbox-media-server`) handles this automatically on boot, and `manage.sh` re-applies it as a safety net
@@ -655,17 +663,21 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Pre-seeded API keys** — generated during setup and injected into config.xml before containers start, enabling fully automated API-based configuration
 - **python3 for JSON manipulation** — used to GET/modify/PUT *arr config endpoints; gracefully skipped if not installed
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
+- **Docker images pinned to specific versions** — avoids breakage from upstream changes; re-run `setup.sh` to pick up newer versions intentionally
+- **Decypharr config mounted read-only** — prevents containers from accidentally modifying their own configuration
 
 ## Updating
 
-To update all services to their latest versions:
+To update all services to their pinned versions:
 
 ```bash
 cd torbox-media-server/
 ./manage.sh update
 ```
 
-This pulls the latest Docker images and restarts all containers. Your configuration and data are preserved.
+This pulls the pinned Docker image versions and restarts all containers. Your configuration and data are preserved.
+
+> **Note:** Docker images are pinned to specific versions in `setup.sh` for reproducibility. To upgrade to newer versions, re-run `./setup.sh` which regenerates the Docker Compose file with updated image tags.
 
 ## Uninstalling
 
