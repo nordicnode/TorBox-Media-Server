@@ -185,7 +185,7 @@ check_dependencies() {
         missing+=("docker")
     fi
 
-    if docker compose version &>/dev/null 2>&1; then
+    if docker compose version &>/dev/null; then
         log_info "Docker Compose: using v2 plugin (docker compose)."
     elif command -v docker-compose &>/dev/null; then
         log_info "Docker Compose: using v1 standalone (docker-compose)."
@@ -560,7 +560,7 @@ gather_config() {
         if [[ -d /dev/dri ]]; then
             detected_intel=true
         fi
-        if command -v nvidia-smi &>/dev/null 2>&1 || [[ -e /dev/nvidia0 ]]; then
+        if command -v nvidia-smi &>/dev/null || [[ -e /dev/nvidia0 ]]; then
             detected_nvidia=true
         fi
 
@@ -1459,16 +1459,16 @@ generate_systemd_service() {
 
     # Resolve absolute path and compose subcommand for systemd ExecStart
     local docker_bin compose_args
-    if docker compose version &>/dev/null 2>&1; then
+    if docker compose version &>/dev/null; then
         docker_bin="$(command -v docker)"
         compose_args="compose"
-    elif docker-compose version &>/dev/null 2>&1; then
+    elif docker-compose version &>/dev/null; then
         docker_bin="$(command -v docker-compose)"
         compose_args=""
-    elif sudo docker compose version &>/dev/null 2>&1; then
+    elif sudo docker compose version &>/dev/null; then
         docker_bin="$(command -v docker)"
         compose_args="compose"
-    elif sudo docker-compose version &>/dev/null 2>&1; then
+    elif sudo docker-compose version &>/dev/null; then
         docker_bin="$(command -v docker-compose)"
         compose_args=""
     else
