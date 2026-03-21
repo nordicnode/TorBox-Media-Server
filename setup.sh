@@ -1079,6 +1079,7 @@ generate_management_script() {
     cat > "${INSTALL_DIR}/manage.sh" << 'MANAGE_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
@@ -1245,6 +1246,7 @@ case "${1:-help}" in
     backup)
         backup_dir="${SCRIPT_DIR}/backups/$(date +%Y%m%d_%H%M%S)"
         mkdir -p "${backup_dir}"
+        chmod 700 "${backup_dir}"
         cp -a "${ENV_FILE}" "${backup_dir}/" 2>/dev/null || true
         cp -a "${COMPOSE_FILE}" "${backup_dir}/" 2>/dev/null || true
         cp -ra "${SCRIPT_DIR}/configs" "${backup_dir}/" 2>/dev/null || true
