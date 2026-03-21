@@ -449,6 +449,9 @@ gather_config() {
     if [[ -n "${TORBOX_MEDIA_SERVER:-}" ]]; then
         MEDIA_SERVER="${TORBOX_MEDIA_SERVER}"
         log_info "Using media server from TORBOX_MEDIA_SERVER env var: ${MEDIA_SERVER}"
+    elif [[ -n "${EXISTING_COMPOSE_PROFILES:-}" ]]; then
+        MEDIA_SERVER="${EXISTING_COMPOSE_PROFILES}"
+        log_info "Keeping existing media server: ${MEDIA_SERVER}"
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
         MEDIA_SERVER="plex"
         log_info "Non-interactive mode: defaulting to Plex."
@@ -2288,6 +2291,7 @@ check_existing_installation() {
         EXISTING_SONARR_API_KEY=$(grep '^SONARR_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
         EXISTING_PROWLARR_API_KEY=$(grep '^PROWLARR_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
         EXISTING_TORBOX_API_KEY=$(grep '^TORBOX_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
+        EXISTING_COMPOSE_PROFILES=$(grep '^COMPOSE_PROFILES=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
 
         # Validate extracted API keys are valid 32-char hex; regenerate if corrupted
         if [[ -n "$EXISTING_RADARR_API_KEY" && ! "$EXISTING_RADARR_API_KEY" =~ ^[0-9a-f]{32}$ ]]; then
