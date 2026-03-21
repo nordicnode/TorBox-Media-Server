@@ -363,11 +363,11 @@ test_decypharr_config_mount_readonly() {
         echo -e "${CYAN}[SKIP]${NC} Cannot find setup.sh to check Decypharr mount"
         return
     fi
-    # Check that the Decypharr config volume uses :ro
-    if grep -q 'decypharr:/app:ro' "$setup_file"; then
-        pass "Decypharr config volume is mounted read-only"
+    # Check that the Decypharr config volume uses file-level :ro mount
+    if grep -q 'config.json:/app/config.json:ro' "$setup_file"; then
+        pass "Decypharr config.json is mounted as read-only file"
     else
-        fail "Decypharr config volume should use :ro mount"
+        fail "Decypharr config should use file-level :ro mount"
     fi
 }
 
@@ -426,6 +426,75 @@ echo ""
 echo "--- Docker compose template tests ---"
 test_image_versions_not_latest
 test_decypharr_config_mount_readonly
+
+echo ""
+echo "--- Feature detection tests ---"
+
+test_yes_flag_support() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local setup_file="${script_dir}/../setup.sh"
+    [[ ! -f "$setup_file" ]] && setup_file="${script_dir}/setup.sh"
+    if grep -q '\-\-yes\|--non-interactive' "$setup_file"; then
+        pass "--yes/--non-interactive flag is supported"
+    else
+        fail "--yes/--non-interactive flag not found in setup.sh"
+    fi
+}
+
+test_hw_auto_detect() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local setup_file="${script_dir}/../setup.sh"
+    [[ ! -f "$setup_file" ]] && setup_file="${script_dir}/setup.sh"
+    if grep -q 'detected_intel' "$setup_file" && grep -q 'detected_nvidia' "$setup_file"; then
+        pass "Hardware acceleration auto-detection is implemented"
+    else
+        fail "Hardware acceleration auto-detection not found"
+    fi
+}
+
+test_seerr_auto_config() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local setup_file="${script_dir}/../setup.sh"
+    [[ ! -f "$setup_file" ]] && setup_file="${script_dir}/setup.sh"
+    if grep -q 'configure_seerr' "$setup_file"; then
+        pass "Seerr auto-configuration function exists"
+    else
+        fail "Seerr auto-configuration not found"
+    fi
+}
+
+test_plex_library_auto_config() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local setup_file="${script_dir}/../setup.sh"
+    [[ ! -f "$setup_file" ]] && setup_file="${script_dir}/setup.sh"
+    if grep -q 'configure_plex_libraries' "$setup_file"; then
+        pass "Plex library auto-configuration function exists"
+    else
+        fail "Plex library auto-configuration not found"
+    fi
+}
+
+test_default_indexer() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local setup_file="${script_dir}/../setup.sh"
+    [[ ! -f "$setup_file" ]] && setup_file="${script_dir}/setup.sh"
+    if grep -q 'add_default_indexer' "$setup_file"; then
+        pass "Default indexer function exists"
+    else
+        fail "Default indexer function not found"
+    fi
+}
+
+test_yes_flag_support
+test_hw_auto_detect
+test_seerr_auto_config
+test_plex_library_auto_config
+test_default_indexer
 
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

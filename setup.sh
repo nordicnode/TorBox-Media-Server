@@ -113,6 +113,8 @@ run_with_spinner() {
     local msg="$1"; shift
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local tmpfile; tmpfile=$(mktemp)
+    # Ensure temp file cleanup on any exit
+    trap 'rm -f "$tmpfile"' RETURN
     "$@" > "$tmpfile" 2>&1 &
     local pid=$! i=0
     while kill -0 "$pid" 2>/dev/null; do
@@ -185,7 +187,10 @@ check_dependencies() {
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_warn "Missing dependencies: ${missing[*]}"
         echo ""
-        read -rp "Install missing dependencies automatically? [Y/n]: " install_deps
+        local install_deps="y"
+        if [[ "$NON_INTERACTIVE" != "true" ]]; then
+            read -rp "Install missing dependencies automatically? [Y/n]: " install_deps
+        fi
         if [[ "${install_deps,,}" != "n" ]]; then
             install_dependencies "${missing[@]}"
         else
@@ -254,10 +259,11 @@ check_port_conflicts() {
         ports_to_check+=("${SVC_PORTS[$svc]}")
         port_names+=("${SVC_LABELS[$svc]}")
     done
-    if [[ "$MEDIA_SERVER" == "plex" ]]; then
+    # Add media-server-specific ports if MEDIA_SERVER is already set
+    if [[ "${MEDIA_SERVER:-}" == "plex" ]]; then
         ports_to_check+=(32400)
         port_names+=("Plex")
-    elif [[ "$MEDIA_SERVER" == "jellyfin" ]]; then
+    elif [[ "${MEDIA_SERVER:-}" == "jellyfin" ]]; then
         ports_to_check+=(8096 8920)
         port_names+=("Jellyfin" "Jellyfin HTTPS")
     fi
@@ -283,10 +289,14 @@ check_port_conflicts() {
     if [[ "$conflicts" == "true" ]]; then
         log_warn "Some ports are in use. Services using those ports may fail to start."
         log_warn "Stop the conflicting processes or change the ports in docker-compose.yml after setup."
-        read -rp "Continue anyway? [Y/n]: " continue_anyway
-        if [[ "${continue_anyway,,}" == "n" ]]; then
-            log_error "Setup cancelled. Free the conflicting ports and re-run."
-            exit 1
+        if [[ "$NON_INTERACTIVE" == "true" ]]; then
+            log_warn "Non-interactive mode: continuing despite port conflicts."
+        else
+            read -rp "Continue anyway? [Y/n]: " continue_anyway
+            if [[ "${continue_anyway,,}" == "n" ]]; then
+                log_error "Setup cancelled. Free the conflicting ports and re-run."
+                exit 1
+            fi
         fi
     fi
 }
@@ -364,7 +374,10 @@ gather_config() {
     echo -e "${BOLD}TorBox API Key${NC}"
     echo "  Get your API key from: https://torbox.app/settings"
     echo ""
-    if [[ -n "${EXISTING_TORBOX_API_KEY:-}" ]]; then
+    if [[ -n "${TORBOX_API_KEY:-}" ]]; then
+        # Non-interactive: use env var
+        log_info "Using TorBox API key from TORBOX_API_KEY env var."
+    elif [[ -n "${EXISTING_TORBOX_API_KEY:-}" ]]; then
         echo -e "  ${GREEN}Previous API key found.${NC} Press Enter to keep it, or paste a new one."
         read -rsp "  TorBox API key [keep existing]: " new_torbox_key
         echo ""
@@ -384,6 +397,7 @@ gather_config() {
             log_error "API key cannot be empty."
         done
     fi
+    TORBOX_API_KEY="${TORBOX_API_KEY:-${EXISTING_TORBOX_API_KEY:-}}"
     # Validate API key with allowlist — only safe characters permitted
     if [[ ! "$TORBOX_API_KEY" =~ ^[a-zA-Z0-9._-]+$ ]]; then
         log_error "API key contains invalid characters. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -396,66 +410,67 @@ gather_config() {
 
     # Media Server Choice
     echo -e "${BOLD}Media Server${NC}"
-    echo "  1) Plex"
-    echo "  2) Jellyfin"
-    echo ""
-    while true; do
-        read -rp "  Choose your media server [1/2]: " media_choice
-        case "$media_choice" in
-            1) MEDIA_SERVER="plex"; break ;;
-            2) MEDIA_SERVER="jellyfin"; break ;;
-            *) log_error "Please enter 1 or 2." ;;
-        esac
-    done
+    if [[ -n "${TORBOX_MEDIA_SERVER:-}" ]]; then
+        MEDIA_SERVER="${TORBOX_MEDIA_SERVER}"
+        log_info "Using media server from TORBOX_MEDIA_SERVER env var: ${MEDIA_SERVER}"
+    elif [[ "$NON_INTERACTIVE" == "true" ]]; then
+        MEDIA_SERVER="plex"
+        log_info "Non-interactive mode: defaulting to Plex."
+    else
+        echo "  1) Plex"
+        echo "  2) Jellyfin"
+        echo ""
+        while true; do
+            read -rp "  Choose your media server [1/2]: " media_choice
+            case "$media_choice" in
+                1) MEDIA_SERVER="plex"; break ;;
+                2) MEDIA_SERVER="jellyfin"; break ;;
+                *) log_error "Please enter 1 or 2." ;;
+            esac
+        done
+    fi
 
-    PLEX_CLAIM=""
-    if [[ "$MEDIA_SERVER" == "plex" ]]; then
+    PLEX_CLAIM="${TORBOX_PLEX_CLAIM:-}"
+    if [[ "$MEDIA_SERVER" == "plex" && -z "$PLEX_CLAIM" && "$NON_INTERACTIVE" != "true" ]]; then
         echo ""
         echo -e "${BOLD}Plex Claim Token${NC} (optional, for first-time setup)"
         echo "  Get your claim token from: https://www.plex.tv/claim/"
         echo "  Press Enter to skip."
         read -rp "  Plex claim token: " PLEX_CLAIM
         PLEX_CLAIM="${PLEX_CLAIM:-}"
-        if [[ -n "$PLEX_CLAIM" && ! "$PLEX_CLAIM" =~ ^claim-[a-zA-Z0-9_-]+$ ]]; then
-            log_error "Invalid Plex claim token format. Tokens start with 'claim-' followed by alphanumeric characters."
-            log_error "Please copy it directly from https://www.plex.tv/claim/"
-            exit 1
-        fi
+    fi
+    if [[ -n "$PLEX_CLAIM" && ! "$PLEX_CLAIM" =~ ^claim-[a-zA-Z0-9_-]+$ ]]; then
+        log_error "Invalid Plex claim token format. Tokens start with 'claim-' followed by alphanumeric characters."
+        log_error "Please copy it directly from https://www.plex.tv/claim/"
+        exit 1
     fi
 
     echo ""
 
-    # Mount directory
-    echo -e "${BOLD}Mount Directory${NC}"
-    echo "  This is where TorBox media will be mounted on your filesystem."
-    echo "  Default: ${MOUNT_DIR}"
-    while true; do
-        read -rp "  Mount path [${MOUNT_DIR}]: " custom_mount
+    # Mount directory — use default silently, allow override via env var
+    MOUNT_DIR="${TORBOX_MOUNT_DIR:-/mnt/torbox-media}"
+    if [[ "$NON_INTERACTIVE" != "true" && -z "${TORBOX_MOUNT_DIR:-}" ]]; then
+        echo -e "${BOLD}Mount Directory${NC} [${MOUNT_DIR}]:"
+        read -rp "  Press Enter to accept, or type a custom path: " custom_mount
         MOUNT_DIR="${custom_mount:-$MOUNT_DIR}"
-        if [[ "$MOUNT_DIR" != /* ]]; then
-            log_error "Mount path must be an absolute path (start with /)."
+    fi
+    if [[ "$MOUNT_DIR" != /* ]]; then
+        log_error "Mount path must be an absolute path (start with /). Using default."
+        MOUNT_DIR="/mnt/torbox-media"
+    fi
+    # Block system directory prefixes
+    for prefix in /etc /usr /var /tmp /proc /sys /dev /boot /sbin /bin /lib /run; do
+        if [[ "$MOUNT_DIR" == "$prefix" || "$MOUNT_DIR" == "$prefix"/* ]]; then
+            log_error "'${MOUNT_DIR}' is under a system directory. Using default."
             MOUNT_DIR="/mnt/torbox-media"
-            continue
+            break
         fi
-        # Block system directory prefixes
-        local blocked=false
-        for prefix in /etc /usr /var /tmp /proc /sys /dev /boot /sbin /bin /lib /run; do
-            if [[ "$MOUNT_DIR" == "$prefix" || "$MOUNT_DIR" == "$prefix"/* ]]; then
-                log_error "'${MOUNT_DIR}' is under a system directory. Please choose a dedicated path."
-                MOUNT_DIR="/mnt/torbox-media"
-                blocked=true
-                break
-            fi
-        done
-        [[ "$blocked" == "true" ]] && continue
-        # Reject unsafe characters in mount path
-        if [[ "$MOUNT_DIR" =~ [^a-zA-Z0-9_./-] ]]; then
-            log_error "Mount path contains unsafe characters. Use only alphanumeric, dots, hyphens, underscores, and slashes."
-            MOUNT_DIR="/mnt/torbox-media"
-            continue
-        fi
-        break
     done
+    # Reject unsafe characters in mount path
+    if [[ "$MOUNT_DIR" =~ [^a-zA-Z0-9_./-] ]]; then
+        log_error "Mount path contains unsafe characters. Using default."
+        MOUNT_DIR="/mnt/torbox-media"
+    fi
 
     echo ""
 
@@ -464,36 +479,39 @@ gather_config() {
     PGID="$(id -g)"
     echo -e "${BOLD}User/Group IDs${NC}"
     echo "  Detected: PUID=${PUID}, PGID=${PGID}"
-    read -rp "  Use these? [Y/n]: " use_ids
-    if [[ "${use_ids,,}" == "n" ]]; then
-        while true; do
-            read -rp "  PUID: " PUID
-            read -rp "  PGID: " PGID
-            if [[ "$PUID" =~ ^[0-9]+$ && "$PGID" =~ ^[0-9]+$ ]]; then
-                break
-            fi
-            log_error "PUID and PGID must be numeric values."
-        done
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+        read -rp "  Use these? [Y/n]: " use_ids
+        if [[ "${use_ids,,}" == "n" ]]; then
+            while true; do
+                read -rp "  PUID: " PUID
+                read -rp "  PGID: " PGID
+                if [[ "$PUID" =~ ^[0-9]+$ && "$PGID" =~ ^[0-9]+$ ]]; then
+                    break
+                fi
+                log_error "PUID and PGID must be numeric values."
+            done
+        fi
     fi
 
     # Timezone
     TZ="$(timedatectl show -p Timezone --value 2>/dev/null || echo 'UTC')"
     echo ""
     echo -e "${BOLD}Timezone${NC}: ${TZ}"
-    read -rp "  Use this timezone? [Y/n]: " use_tz
-    if [[ "${use_tz,,}" == "n" ]]; then
-        while true; do
-            read -rp "  Enter timezone (e.g., America/New_York): " TZ
-            # Validate against known timezones if timedatectl is available
-            if timedatectl list-timezones 2>/dev/null | grep -qx "$TZ"; then
-                break
-            elif [[ "$TZ" =~ ^[a-zA-Z_/+-]+$ ]]; then
-                log_warn "Could not verify timezone '$TZ' against system list. Using it anyway."
-                break
-            else
-                log_error "Invalid timezone format. Use format like 'America/New_York' or 'UTC'."
-            fi
-        done
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+        read -rp "  Use this timezone? [Y/n]: " use_tz
+        if [[ "${use_tz,,}" == "n" ]]; then
+            while true; do
+                read -rp "  Enter timezone (e.g., America/New_York): " TZ
+                if timedatectl list-timezones 2>/dev/null | grep -qx "$TZ"; then
+                    break
+                elif [[ "$TZ" =~ ^[a-zA-Z_/+-]+$ ]]; then
+                    log_warn "Could not verify timezone '$TZ' against system list. Using it anyway."
+                    break
+                else
+                    log_error "Invalid timezone format. Use format like 'America/New_York' or 'UTC'."
+                fi
+            done
+        fi
     fi
 
     # Generate or preserve API keys for the *arr services
@@ -519,21 +537,66 @@ gather_config() {
 
     echo ""
 
-    # Hardware Acceleration
-    echo -e "${BOLD}Hardware Acceleration (for media transcoding)${NC}"
-    echo "  1) Intel QuickSync (recommended - uses integrated GPU, power-efficient)"
-    echo "  2) NVIDIA NVENC (uses discrete GPU, requires nvidia-container-toolkit)"
-    echo "  3) None (software transcoding only)"
-    echo ""
-    while true; do
-        read -rp "  Choose hardware acceleration [1/2/3]: " hw_choice
-        case "$hw_choice" in
-            1) HW_ACCEL="intel"; break ;;
-            2) HW_ACCEL="nvidia"; break ;;
-            3) HW_ACCEL="none"; break ;;
-            *) log_error "Please enter 1, 2, or 3." ;;
-        esac
-    done
+    # Hardware Acceleration — auto-detect, then prompt only if ambiguous
+    echo -e "${BOLD}Hardware Acceleration${NC}"
+    if [[ -n "${TORBOX_HW_ACCEL:-}" ]]; then
+        HW_ACCEL="${TORBOX_HW_ACCEL}"
+        log_info "Using hardware acceleration from TORBOX_HW_ACCEL env var: ${HW_ACCEL}"
+    else
+        local detected_intel=false detected_nvidia=false
+        if [[ -d /dev/dri ]]; then
+            detected_intel=true
+        fi
+        if command -v nvidia-smi &>/dev/null 2>&1 || [[ -e /dev/nvidia0 ]]; then
+            detected_nvidia=true
+        fi
+
+        if [[ "$detected_intel" == "true" && "$detected_nvidia" == "false" ]]; then
+            HW_ACCEL="intel"
+            log_info "Auto-detected Intel QuickSync (/dev/dri)."
+        elif [[ "$detected_nvidia" == "true" && "$detected_intel" == "false" ]]; then
+            HW_ACCEL="nvidia"
+            log_info "Auto-detected NVIDIA GPU."
+        elif [[ "$detected_intel" == "true" && "$detected_nvidia" == "true" ]]; then
+            if [[ "$NON_INTERACTIVE" == "true" ]]; then
+                HW_ACCEL="intel"
+                log_info "Both GPUs detected. Non-interactive: defaulting to Intel QuickSync."
+            else
+                echo "  Both Intel and NVIDIA GPUs detected."
+                echo "  1) Intel QuickSync (recommended - uses integrated GPU, power-efficient)"
+                echo "  2) NVIDIA NVENC (uses discrete GPU, requires nvidia-container-toolkit)"
+                echo ""
+                while true; do
+                    read -rp "  Choose hardware acceleration [1/2]: " hw_choice
+                    case "$hw_choice" in
+                        1) HW_ACCEL="intel"; break ;;
+                        2) HW_ACCEL="nvidia"; break ;;
+                        *) log_error "Please enter 1 or 2." ;;
+                    esac
+                done
+            fi
+        else
+            if [[ "$NON_INTERACTIVE" == "true" ]]; then
+                HW_ACCEL="none"
+                log_info "No GPU detected. Non-interactive: using software transcoding."
+            else
+                echo "  No GPU detected."
+                echo "  1) None (software transcoding only)"
+                echo "  2) Intel QuickSync (if you have integrated GPU)"
+                echo "  3) NVIDIA NVENC (if you have discrete GPU)"
+                echo ""
+                while true; do
+                    read -rp "  Choose hardware acceleration [1/2/3]: " hw_choice
+                    case "$hw_choice" in
+                        1) HW_ACCEL="none"; break ;;
+                        2) HW_ACCEL="intel"; break ;;
+                        3) HW_ACCEL="nvidia"; break ;;
+                        *) log_error "Please enter 1, 2, or 3." ;;
+                    esac
+                done
+            fi
+        fi
+    fi
 
     echo ""
     log_info "Configuration complete."
@@ -548,10 +611,12 @@ gather_config() {
     echo -e "  ${BOLD}Timezone:${NC}          ${TZ}"
     echo -e "  ${BOLD}HW Acceleration:${NC}   ${HW_ACCEL}"
     echo ""
-    read -rp "Proceed with these settings? [Y/n]: " confirm_config
-    if [[ "${confirm_config,,}" == "n" ]]; then
-        log_info "Setup cancelled."
-        exit 0
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+        read -rp "Proceed with these settings? [Y/n]: " confirm_config
+        if [[ "${confirm_config,,}" == "n" ]]; then
+            log_info "Setup cancelled."
+            exit 0
+        fi
     fi
 }
 
@@ -812,7 +877,7 @@ COMPOSE_HEADER
       - PGID=\${PGID}
       - UMASK=002
     volumes:
-      - "${CONFIG_DIR}/decypharr:/app:ro"
+      - "${CONFIG_DIR}/decypharr/config.json:/app/config.json:ro"
       - "${MOUNT_DIR}:/mnt/remote:rshared"
       - "${DATA_DIR}:/data"
     devices:
@@ -1061,6 +1126,7 @@ COMPOSE_PLEX_HW
       - PUID=\${PUID}
       - PGID=\${PGID}
       - TZ=\${TZ}${NVIDIA_ENV}
+      - JELLYFIN_PublishedServerUrl=http://localhost:8096
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8096/health"]
       interval: 30s
@@ -1155,8 +1221,37 @@ COMPOSE_CMD=()
 _COMPOSE_SUDO_WARNED=false
 MANAGE_EOF
 
-    # Inject shared functions to reduce duplication
-    declare -f log_warn detect_compose_cmd compose_cmd >> "${INSTALL_DIR}/manage.sh"
+    # Write shared functions inline instead of using declare -f (avoids hidden dependency on setup.sh signatures)
+    cat >> "${INSTALL_DIR}/manage.sh" << 'MANAGE_INLINE'
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+
+detect_compose_cmd() {
+    if docker info &>/dev/null 2>&1; then
+        if docker compose version &>/dev/null 2>&1; then
+            COMPOSE_CMD=(docker compose)
+        else
+            COMPOSE_CMD=(docker-compose)
+        fi
+    else
+        if [[ "$_COMPOSE_SUDO_WARNED" != "true" ]]; then
+            log_warn "Docker socket not accessible in current shell — using sudo."
+            _COMPOSE_SUDO_WARNED=true
+        fi
+        if sudo docker compose version &>/dev/null 2>&1; then
+            COMPOSE_CMD=(sudo docker compose)
+        else
+            COMPOSE_CMD=(sudo docker-compose)
+        fi
+    fi
+}
+
+compose_cmd() {
+    if [[ ${#COMPOSE_CMD[@]} -eq 0 ]]; then
+        detect_compose_cmd
+    fi
+    "${COMPOSE_CMD[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+}
+MANAGE_INLINE
 
     cat >> "${INSTALL_DIR}/manage.sh" << 'MANAGE_EOF'
 
@@ -1182,8 +1277,8 @@ show_help() {
     echo "  status      Show service status"
     echo "  logs        Show logs (follow mode)"
     echo "  logs <svc>  Show logs for a specific service"
-    echo "  pull        Pull latest images"
-    echo "  update      Pull latest images and restart"
+    echo "  pull        Pull pinned image versions"
+    echo "  update      Pull pinned images and restart"
     echo "  down        Stop and remove containers"
     echo "  urls        Show all service URLs"
     echo "  keys        Show API keys"
@@ -1724,6 +1819,322 @@ c['seriesFolderFormat'] = '{Series TitleYear}'
 
     echo ""
     log_info "Auto-configuration complete."
+
+    # --- Seerr auto-config ---
+    configure_seerr
+
+    # --- Plex library auto-config ---
+    configure_plex_libraries
+
+    # --- Default indexer ---
+    if [[ "$prowlarr_ready" == "true" ]]; then
+        add_default_indexer
+    fi
+
+    # --- Auto-configure authentication for *arr services ---
+    if [[ "$radarr_ready" == "true" ]]; then
+        configure_arr_auth "Radarr" "$radarr_url" "$RADARR_API_KEY"
+    fi
+    if [[ "$sonarr_ready" == "true" ]]; then
+        configure_arr_auth "Sonarr" "$sonarr_url" "$SONARR_API_KEY"
+    fi
+    if [[ "$prowlarr_ready" == "true" ]]; then
+        configure_arr_auth "Prowlarr" "$prowlarr_url" "$PROWLARR_API_KEY"
+    fi
+}
+
+# ============================================================================
+#  Auto-Configure Seerr via API
+# ============================================================================
+
+configure_seerr() {
+    log_step "Auto-configuring Seerr..."
+
+    local seerr_url="http://localhost:${SVC_PORTS[seerr]}"
+    local max_wait=60 elapsed=0 interval=3
+    local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+
+    # Wait for Seerr to be ready
+    while [[ $elapsed -lt $max_wait ]]; do
+        if curl -sf --connect-timeout 3 --max-time 10 -o /dev/null "${seerr_url}" 2>/dev/null; then
+            printf "\r  %-50s\n" ""
+            break
+        fi
+        printf "\r  %s Waiting for Seerr... %ds/%ds" "${spin_chars:elapsed/interval%${#spin_chars}:1}" "$elapsed" "$max_wait"
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    printf "\r  %-50s\n" ""
+
+    if [[ $elapsed -ge $max_wait ]]; then
+        log_warn "Seerr did not become ready within ${max_wait}s. Skipping Seerr auto-config."
+        return 1
+    fi
+
+    # Get current Seerr settings
+    local seerr_settings
+    seerr_settings=$(curl -sf --connect-timeout 5 --max-time 15 "${seerr_url}/api/v1/settings/main" 2>/dev/null) || true
+    [[ -z "$seerr_settings" ]] && { log_warn "  Could not retrieve Seerr settings."; return 1; }
+
+    # Check if Radarr is already configured
+    if echo "$seerr_settings" | grep -q '"radarr"'; then
+        log_info "  Seerr already has Radarr configured."
+    else
+        # Add Radarr to Seerr
+        curl -sf --connect-timeout 5 --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            "${seerr_url}/api/v1/settings/radarr" \
+            -d '{
+                "name": "Radarr",
+                "hostname": "radarr",
+                "port": 7878,
+                "apiKey": "'"${RADARR_API_KEY}"'",
+                "useSsl": false,
+                "baseUrl": "",
+                "activeProfileId": 1,
+                "activeProfileName": "HD-1080p",
+                "activeDirectory": "/data/media/movies",
+                "is4k": false,
+                "minimumAvailability": "released",
+                "tags": [],
+                "isDefault": true,
+                "externalUrl": ""
+            }' -o /dev/null 2>/dev/null && log_info "  Radarr added to Seerr." \
+            || log_warn "  Failed to add Radarr to Seerr. You can configure it manually."
+    fi
+
+    # Check if Sonarr is already configured
+    if echo "$seerr_settings" | grep -q '"sonarr"'; then
+        log_info "  Seerr already has Sonarr configured."
+    else
+        # Add Sonarr to Seerr
+        curl -sf --connect-timeout 5 --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            "${seerr_url}/api/v1/settings/sonarr" \
+            -d '{
+                "name": "Sonarr",
+                "hostname": "sonarr",
+                "port": 8989,
+                "apiKey": "'"${SONARR_API_KEY}"'",
+                "useSsl": false,
+                "baseUrl": "",
+                "activeProfileId": 1,
+                "activeProfileName": "HD-1080p",
+                "activeDirectory": "/data/media/tv",
+                "is4k": false,
+                "tags": [],
+                "isDefault": true,
+                "externalUrl": ""
+            }' -o /dev/null 2>/dev/null && log_info "  Sonarr added to Seerr." \
+            || log_warn "  Failed to add Sonarr to Seerr. You can configure it manually."
+    fi
+
+    # Configure Plex or Jellyfin connection in Seerr
+    if [[ "${MEDIA_SERVER}" == "plex" ]]; then
+        local plex_token=""
+        local plex_prefs="${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
+        if [[ -f "$plex_prefs" ]]; then
+            plex_token=$(grep -oP 'PlexOnlineToken="\K[^"]+' "$plex_prefs" 2>/dev/null) || true
+        fi
+        if [[ -n "$plex_token" ]]; then
+            curl -sf --connect-timeout 5 --max-time 15 -X POST \
+                -H "Content-Type: application/json" \
+                "${seerr_url}/api/v1/settings/plex" \
+                -d '{
+                    "name": "Plex",
+                    "ip": "plex",
+                    "port": 32400,
+                    "useSsl": false,
+                    "libraries": [],
+                    "webAppUrl": "http://localhost:32400/web"
+                }' -o /dev/null 2>/dev/null && log_info "  Plex server added to Seerr." \
+                || log_warn "  Failed to add Plex to Seerr. You can configure it manually."
+        fi
+    else
+        curl -sf --connect-timeout 5 --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            "${seerr_url}/api/v1/settings/jellyfin" \
+            -d '{
+                "name": "Jellyfin",
+                "ip": "jellyfin",
+                "port": 8096,
+                "useSsl": false,
+                "externalUrl": "",
+                "libraries": []
+            }' -o /dev/null 2>/dev/null && log_info "  Jellyfin server added to Seerr." \
+            || log_warn "  Failed to add Jellyfin to Seerr. You can configure it manually."
+    fi
+}
+
+# ============================================================================
+#  Auto-Configure Plex Libraries via API
+# ============================================================================
+
+configure_plex_libraries() {
+    if [[ "${MEDIA_SERVER}" != "plex" ]]; then
+        return 0
+    fi
+
+    log_step "Auto-configuring Plex libraries..."
+
+    local plex_url="http://localhost:32400"
+    local max_wait=90 elapsed=0 interval=3
+    local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+
+    # Wait for Plex to be claimed and ready
+    while [[ $elapsed -lt $max_wait ]]; do
+        local plex_identity
+        plex_identity=$(curl -sf --connect-timeout 3 --max-time 10 "${plex_url}/identity" 2>/dev/null) || true
+        if [[ -n "$plex_identity" ]]; then
+            # Check if Plex has been claimed (has a token)
+            local plex_prefs="${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
+            if [[ -f "$plex_prefs" ]] && grep -q 'PlexOnlineToken=' "$plex_prefs" 2>/dev/null; then
+                printf "\r  %-50s\n" ""
+                break
+            fi
+        fi
+        printf "\r  %s Waiting for Plex to be claimed... %ds/%ds" "${spin_chars:elapsed/interval%${#spin_chars}:1}" "$elapsed" "$max_wait"
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    printf "\r  %-50s\n" ""
+
+    if [[ $elapsed -ge $max_wait ]]; then
+        log_warn "Plex was not claimed within ${max_wait}s. Skipping library auto-config."
+        log_warn "  Complete the Plex setup wizard, then add libraries manually."
+        return 1
+    fi
+
+    # Extract Plex token
+    local plex_token=""
+    local plex_prefs="${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
+    plex_token=$(grep -oP 'PlexOnlineToken="\K[^"]+' "$plex_prefs" 2>/dev/null) || true
+
+    if [[ -z "$plex_token" ]]; then
+        log_warn "  Could not extract Plex token. Skipping library auto-config."
+        return 1
+    fi
+
+    # Check if libraries already exist
+    local existing_libs
+    existing_libs=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Plex-Token: ${plex_token}" "${plex_url}/library/sections" 2>/dev/null) || true
+
+    if echo "$existing_libs" | grep -q 'title="Movies"' 2>/dev/null; then
+        log_info "  Plex 'Movies' library already exists."
+    else
+        # Add Movies library
+        curl -sf --connect-timeout 5 --max-time 15 -X POST \
+            -H "X-Plex-Token: ${plex_token}" \
+            "${plex_url}/library/sections?name=Movies&type=movie&agent=com.plexapp.agents.imdb&scanner=Plex%20Movie%20Scanner&language=en&location=%2Fdata%2Fmedia%2Fmovies" \
+            -o /dev/null 2>/dev/null && log_info "  Plex 'Movies' library added." \
+            || log_warn "  Failed to add Movies library. You can add it manually in Plex."
+    fi
+
+    if echo "$existing_libs" | grep -q 'title="TV Shows"' 2>/dev/null; then
+        log_info "  Plex 'TV Shows' library already exists."
+    else
+        # Add TV Shows library
+        curl -sf --connect-timeout 5 --max-time 15 -X POST \
+            -H "X-Plex-Token: ${plex_token}" \
+            "${plex_url}/library/sections?name=TV%20Shows&type=show&agent=com.plexapp.agents.thetvdb&scanner=Plex%20Series%20Scanner&language=en&location=%2Fdata%2Fmedia%2Ftv" \
+            -o /dev/null 2>/dev/null && log_info "  Plex 'TV Shows' library added." \
+            || log_warn "  Failed to add TV Shows library. You can add it manually in Plex."
+    fi
+}
+
+# ============================================================================
+#  Pre-add Default Public Indexer to Prowlarr
+# ============================================================================
+
+add_default_indexer() {
+    log_step "Adding default indexer to Prowlarr..."
+
+    local prowlarr_url="http://localhost:${SVC_PORTS[prowlarr]}"
+
+    # Check if any indexers already exist
+    local existing_indexers
+    existing_indexers=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${PROWLARR_API_KEY}" "${prowlarr_url}/api/v1/indexer" 2>/dev/null) || true
+    if [[ -n "$existing_indexers" && "$existing_indexers" != "[]" ]]; then
+        log_info "  Prowlarr already has indexers configured."
+        return 0
+    fi
+
+    # Add 1337x as a default public indexer
+    curl -sf --connect-timeout 5 --max-time 15 -X POST \
+        -H "Content-Type: application/json" \
+        -H "X-Api-Key: ${PROWLARR_API_KEY}" \
+        "${prowlarr_url}/api/v1/indexer" \
+        -d '{
+            "name": "1337x",
+            "fields": [
+                {"name": "baseUrl", "value": "https://1337x.to"},
+                {"name": "apiPath", "value": ""},
+                {"name": "apiKey", "value": ""},
+                {"name": "queryLimit", "value": 0}
+            ],
+            "configContract": "1337xSettings",
+            "implementation": "1337x",
+            "implementationName": "1337x",
+            "infoLink": "https://wiki.servarr.com/prowlarr/supported#1337x",
+            "protocol": "torrent",
+            "supportsRss": true,
+            "supportsSearch": true,
+            "categories": [
+                {"id": 2000, "name": "Movies"},
+                {"id": 5000, "name": "TV"}
+            ]
+        }' -o /dev/null 2>/dev/null && log_info "  Default indexer '1337x' added to Prowlarr." \
+        || log_warn "  Failed to add default indexer. You can add indexers manually in Prowlarr."
+}
+
+# ============================================================================
+#  Auto-Configure Authentication for *arr Services
+# ============================================================================
+
+configure_arr_auth() {
+    local name="$1" url="$2" api_key="$3"
+
+    log_step "Configuring ${name} authentication..."
+
+    # Check current auth config
+    local auth_config
+    auth_config=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${api_key}" "${url}/api/v3/config/host" 2>/dev/null) || true
+    [[ -z "$auth_config" ]] && { log_warn "  Could not retrieve ${name} auth config."; return 1; }
+
+    # Check if auth is already set to Forms
+    if echo "$auth_config" | grep -q '"authenticationMethod":"Forms"' 2>/dev/null || \
+       echo "$auth_config" | grep -q '"authenticationMethod": "Forms"' 2>/dev/null; then
+        log_info "  ${name} already has Forms authentication configured."
+        return 0
+    fi
+
+    # Set auth to Forms (login page) for local addresses
+    local auth_id
+    auth_id=$(echo "$auth_config" | python3 -c "import json,sys; print(json.loads(sys.stdin.read())['id'])" 2>/dev/null) || true
+    [[ -z "$auth_id" ]] && { log_warn "  Could not parse ${name} auth config ID."; return 1; }
+
+    # Generate a random default password
+    local default_password
+    default_password=$(openssl rand -base64 12 2>/dev/null || head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 16)
+
+    # Update auth config to Forms with DisabledForLocalAddresses
+    local updated_auth
+    updated_auth=$(echo "$auth_config" | python3 -c "
+import json, sys
+c = json.loads(sys.stdin.read())
+c['authenticationMethod'] = 'Forms'
+c['authenticationRequired'] = 'DisabledForLocalAddresses'
+print(json.dumps(c))
+" 2>/dev/null) || true
+    [[ -z "$updated_auth" ]] && { log_warn "  Could not update ${name} auth config."; return 1; }
+
+    curl -sf --connect-timeout 5 --max-time 15 -X PUT \
+        -H "Content-Type: application/json" \
+        -H "X-Api-Key: ${api_key}" \
+        "${url}/api/v3/config/host/${auth_id}" \
+        -d "$updated_auth" -o /dev/null 2>/dev/null && \
+        log_info "  ${name} auth set to Forms (DisabledForLocalAddresses)." \
+        || log_warn "  Failed to configure ${name} auth."
 }
 
 # ============================================================================
@@ -1765,11 +2176,17 @@ print_post_install() {
         echo -e "  ${GREEN}✓${NC} Sonarr naming conventions (Plex/Jellyfin compatible)"
         echo -e "  ${GREEN}✓${NC} Sonarr quality profiles (upgrades enabled)"
         echo -e "  ${GREEN}✓${NC} Prowlarr Byparr proxy (FlareSolverr-compatible)"
-        echo -e "  ${GREEN}✓${NC} Prowlarr → Radarr app connection"
-        echo -e "  ${GREEN}✓${NC} Prowlarr → Sonarr app connection"
+        echo -e "  ${GREEN}✓${NC} Prowlarr default indexer (1337x)"
+        echo -e "  ${GREEN}✓${NC} Prowlarr Radarr app connection"
+        echo -e "  ${GREEN}✓${NC} Prowlarr Sonarr app connection"
+        echo -e "  ${GREEN}✓${NC} Seerr Radarr & Sonarr connection"
         if [[ "$MEDIA_SERVER" == "plex" ]]; then
-        echo -e "  ${GREEN}✓${NC} Radarr → Plex notification (instant library updates)"
-        echo -e "  ${GREEN}✓${NC} Sonarr → Plex notification (instant library updates)"
+        echo -e "  ${GREEN}✓${NC} Radarr Plex notification (instant library updates)"
+        echo -e "  ${GREEN}✓${NC} Sonarr Plex notification (instant library updates)"
+        echo -e "  ${GREEN}✓${NC} Plex libraries (Movies + TV Shows)"
+        echo -e "  ${GREEN}✓${NC} Seerr Plex server connection"
+        else
+        echo -e "  ${GREEN}✓${NC} Seerr Jellyfin server connection"
         fi
         echo ""
     fi
@@ -1804,6 +2221,7 @@ print_post_install() {
     if [[ "$SERVICES_STARTED" == "true" ]]; then
         echo -e "   • ${GREEN}Byparr proxy already configured ✓${NC}"
         echo -e "   • ${GREEN}Radarr & Sonarr apps already connected ✓${NC}"
+        echo -e "   • ${GREEN}Default indexer (1337x) already added ✓${NC}"
     else
         echo "   • Add FlareSolverr proxy: Settings → Indexers → Add → FlareSolverr"
         echo "     - Tag: flaresolverr"
@@ -1811,8 +2229,8 @@ print_post_install() {
         echo "   • Add Radarr & Sonarr as apps: Settings → Apps → Add"
         echo "     - Radarr: http://radarr:7878  (API key: $(mask_key "${RADARR_API_KEY}"))"
         echo "     - Sonarr: http://sonarr:8989  (API key: $(mask_key "${SONARR_API_KEY}"))"
+        echo "   • Add indexers (torrent sites) you want to use"
     fi
-    echo "   • Add indexers (torrent sites) you want to use"
     echo ""
     echo -e "${CYAN}3. Radarr${NC}"
     echo "   • Open http://localhost:7878"
@@ -1856,10 +2274,17 @@ print_post_install() {
     if [[ "$MEDIA_SERVER" == "plex" ]]; then
         echo -e "${CYAN}5. Plex${NC}"
         echo "   • Open http://localhost:32400/web"
-        echo "   • Complete initial setup wizard"
-        echo "   • Add libraries:"
-        echo "     - Movies: /data/media/movies"
-        echo "     - TV Shows: /data/media/tv"
+        echo "   • Complete initial setup wizard if not yet done"
+        if [[ "$SERVICES_STARTED" == "true" ]]; then
+            echo -e "   • ${GREEN}Libraries auto-configured (Movies + TV Shows) ✓${NC}"
+            echo "   • If libraries are missing, add them manually:"
+            echo "     - Movies: /data/media/movies"
+            echo "     - TV Shows: /data/media/tv"
+        else
+            echo "   • Add libraries:"
+            echo "     - Movies: /data/media/movies"
+            echo "     - TV Shows: /data/media/tv"
+        fi
     else
         echo -e "${CYAN}5. Jellyfin${NC}"
         echo "   • Open http://localhost:8096"
@@ -1870,19 +2295,31 @@ print_post_install() {
     fi
 
     echo ""
-    echo -e "${CYAN}6. Seerr${NC}"
-    echo "   • Open http://localhost:5055"
-    echo "   • Supports both Plex and Jellyfin"
-    if [[ "$MEDIA_SERVER" == "plex" ]]; then
-        echo "   • Sign in with your Plex account"
-        echo -e "   • Connect to Plex using: ${YELLOW}http://plex:32400${NC}"
-        echo "     Plex is on the same Docker network — use the container name."
+    if [[ "$SERVICES_STARTED" == "true" ]]; then
+        echo -e "${CYAN}6. Seerr${NC}"
+        echo "   • Open http://localhost:5055"
+        if [[ "$MEDIA_SERVER" == "plex" ]]; then
+            echo "   • Sign in with your Plex account"
+            echo -e "   • ${GREEN}Radarr & Sonarr already connected ✓${NC}"
+            echo -e "   • ${GREEN}Plex server already configured ✓${NC}"
+        else
+            echo "   • Sign in and connect to Jellyfin"
+            echo -e "   • ${GREEN}Radarr & Sonarr already connected ✓${NC}"
+            echo -e "   • ${GREEN}Jellyfin server already configured ✓${NC}"
+        fi
     else
-        echo "   • Sign in and connect to Jellyfin (http://jellyfin:8096)"
+        echo -e "${CYAN}6. Seerr${NC}"
+        echo "   • Open http://localhost:5055"
+        if [[ "$MEDIA_SERVER" == "plex" ]]; then
+            echo "   • Sign in with your Plex account"
+            echo -e "   • Connect to Plex using: ${YELLOW}http://plex:32400${NC}"
+        else
+            echo "   • Sign in and connect to Jellyfin (http://jellyfin:8096)"
+        fi
+        echo "   • Add Radarr & Sonarr servers"
+        echo "     - Radarr: http://radarr:7878 + API key: $(mask_key "${RADARR_API_KEY}")"
+        echo "     - Sonarr: http://sonarr:8989 + API key: $(mask_key "${SONARR_API_KEY}")"
     fi
-    echo "   • Add Radarr & Sonarr servers"
-    echo "     - Radarr: http://radarr:7878 + API key: $(mask_key "${RADARR_API_KEY}")"
-    echo "     - Sonarr: http://sonarr:8989 + API key: $(mask_key "${SONARR_API_KEY}")"
     echo ""
 
     echo -e "${BOLD}━━━━ Important Notes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1907,7 +2344,7 @@ print_post_install() {
     echo "  ./manage.sh stop     # Stop all services"
     echo "  ./manage.sh status   # Check status"
     echo "  ./manage.sh logs     # View logs"
-    echo "  ./manage.sh update   # Pull latest & restart"
+    echo "  ./manage.sh update   # Pull pinned & restart"
     echo "  ./manage.sh urls     # Show service URLs"
     echo ""
 
@@ -1954,7 +2391,7 @@ check_existing_installation() {
         echo "  Your existing API keys will be PRESERVED to avoid breaking integrations."
         echo ""
         read -rp "Continue with re-configuration? [y/N]: " rerun
-        if [[ "${rerun,,}" != "y" ]]; then
+        if [[ "${rerun,,}" != "y" && "$NON_INTERACTIVE" != "true" ]]; then
             log_info "Setup cancelled. Your existing installation is unchanged."
             exit 0
         fi
@@ -1976,13 +2413,18 @@ check_existing_installation() {
         EXISTING_TORBOX_API_KEY=$(grep '^TORBOX_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
 
         # Validate extracted API keys are valid 32-char hex; regenerate if corrupted
-        for _keyvar in EXISTING_RADARR_API_KEY EXISTING_SONARR_API_KEY EXISTING_PROWLARR_API_KEY; do
-            local _keyval="${!_keyvar:-}"
-            if [[ -n "$_keyval" && ! "$_keyval" =~ ^[0-9a-f]{32}$ ]]; then
-                log_warn "Corrupted API key detected for ${_keyvar}. Will regenerate."
-                eval "${_keyvar}=''"
-            fi
-        done
+        if [[ -n "$EXISTING_RADARR_API_KEY" && ! "$EXISTING_RADARR_API_KEY" =~ ^[0-9a-f]{32}$ ]]; then
+            log_warn "Corrupted API key detected for Radarr. Will regenerate."
+            EXISTING_RADARR_API_KEY=""
+        fi
+        if [[ -n "$EXISTING_SONARR_API_KEY" && ! "$EXISTING_SONARR_API_KEY" =~ ^[0-9a-f]{32}$ ]]; then
+            log_warn "Corrupted API key detected for Sonarr. Will regenerate."
+            EXISTING_SONARR_API_KEY=""
+        fi
+        if [[ -n "$EXISTING_PROWLARR_API_KEY" && ! "$EXISTING_PROWLARR_API_KEY" =~ ^[0-9a-f]{32}$ ]]; then
+            log_warn "Corrupted API key detected for Prowlarr. Will regenerate."
+            EXISTING_PROWLARR_API_KEY=""
+        fi
 
         if [[ -n "$EXISTING_RADARR_API_KEY" ]]; then
             log_info "Existing API keys loaded and will be preserved."
@@ -1994,7 +2436,10 @@ check_existing_installation() {
 start_services() {
     log_section "Starting Services"
 
-    read -rp "Start all services now? [Y/n]: " start_now
+    local start_now="y"
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+        read -rp "Start all services now? [Y/n]: " start_now
+    fi
     if [[ "${start_now,,}" != "n" ]]; then
         log_step "Starting Docker containers (first run downloads ~5-8 GB of images, this may take several minutes)..."
         if ! (cd "${INSTALL_DIR}" && compose_cmd up -d --remove-orphans); then
@@ -2017,23 +2462,52 @@ start_services() {
 #  Main
 # ============================================================================
 
+NON_INTERACTIVE=false
+
 main() {
+    # Parse command-line flags
+    for arg in "$@"; do
+        case "$arg" in
+            -y|--yes|--non-interactive) NON_INTERACTIVE=true ;;
+            -h|--help)
+                echo "Usage: ./setup.sh [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  -y, --yes, --non-interactive  Use defaults for all prompts"
+                echo "  -h, --help                    Show this help"
+                echo ""
+                echo "Environment variables for non-interactive mode:"
+                echo "  TORBOX_API_KEY        TorBox API key (required)"
+                echo "  TORBOX_MEDIA_SERVER   'plex' or 'jellyfin' (default: plex)"
+                echo "  TORBOX_PLEX_CLAIM     Plex claim token (optional)"
+                echo "  TORBOX_MOUNT_DIR      Mount directory (default: /mnt/torbox-media)"
+                echo "  TORBOX_HW_ACCEL       'intel', 'nvidia', or 'none' (auto-detects if unset)"
+                echo "  TORBOX_START_SERVICES 'true' or 'false' (default: true)"
+                exit 0
+                ;;
+        esac
+    done
+
     # Warn if running as root (PUID/PGID would default to 0:0, usually undesirable)
     if [[ $EUID -eq 0 ]]; then
         log_warn "Running as root. Container PUID/PGID will default to 0:0."
         log_warn "Consider running as a regular user instead."
         echo ""
-        read -rp "Continue as root? [y/N]: " run_as_root
-        if [[ "${run_as_root,,}" != "y" ]]; then
-            log_info "Re-run as a regular user: ./setup.sh"
-            exit 0
+        if [[ "$NON_INTERACTIVE" != "true" ]]; then
+            read -rp "Continue as root? [y/N]: " run_as_root
+            if [[ "${run_as_root,,}" != "y" ]]; then
+                log_info "Re-run as a regular user: ./setup.sh"
+                exit 0
+            fi
         fi
     fi
 
     print_banner
     check_existing_installation
     check_dependencies
+    check_port_conflicts
     gather_config
+    # Re-check ports now that media server is known
     check_port_conflicts
     create_directories
     generate_decypharr_config

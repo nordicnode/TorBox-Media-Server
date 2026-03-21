@@ -136,6 +136,14 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
+For unattended/automated installs, use `--yes` mode with environment variables:
+
+```bash
+TORBOX_API_KEY="your-api-key" TORBOX_MEDIA_SERVER="plex" ./setup.sh --yes
+```
+
+Run `./setup.sh --help` for all available options.
+
 The script will interactively ask you for:
 
 | Prompt | What to enter |
@@ -143,25 +151,27 @@ The script will interactively ask you for:
 | **TorBox API key** | Paste the API key from your [TorBox settings](https://torbox.app/settings) |
 | **Plex or Jellyfin** | Choose `1` for Plex or `2` for Jellyfin |
 | **Plex claim token** | (Plex only) Paste your claim token, or press Enter to skip |
-| **Mount directory** | Press Enter for default (`/mnt/torbox-media`), or enter a custom path |
-| **User/Group IDs** | Press Enter to use auto-detected values (recommended) |
-| **Timezone** | Press Enter to use auto-detected timezone (recommended) |
-| **Hardware acceleration** | Choose `1` for Intel QuickSync, `2` for NVIDIA NVENC, or `3` for none |
+| **Hardware acceleration** | Auto-detected; only prompted if both Intel and NVIDIA GPUs are present |
 | **Start services?** | Press Enter or `Y` to start immediately (recommended) |
+
+> **Auto-detected values:** Mount directory (`/mnt/torbox-media`), user/group IDs, timezone, and hardware acceleration are auto-detected. Override via env vars: `TORBOX_MOUNT_DIR`, `TORBOX_HW_ACCEL`.
 
 Then the script automatically:
 
-1. ✅ Checks and installs dependencies (Docker, FUSE)
-2. ✅ Creates the full directory structure
-3. ✅ Generates Decypharr config with your TorBox API key
-4. ✅ Pre-seeds API keys into Radarr, Sonarr, and Prowlarr config files
-5. ✅ Generates the `.env` file and Docker Compose
-6. ✅ Creates the `manage.sh` management script
-7. ✅ Sets up FUSE mount propagation
-8. ✅ Installs a systemd service for automatic startup on boot
-9. ✅ Starts all Docker containers
-10. ✅ Waits for services to initialize, then auto-configures via API:
+1. Checks and installs dependencies (Docker, FUSE)
+2. Creates the full directory structure
+3. Generates Decypharr config with your TorBox API key
+4. Pre-seeds API keys into Radarr, Sonarr, and Prowlarr config files
+5. Generates the `.env` file and Docker Compose
+6. Creates the `manage.sh` management script
+7. Sets up FUSE mount propagation
+8. Installs a systemd service for automatic startup on boot
+9. Starts all Docker containers
+10. Waits for services to initialize, then auto-configures via API:
    - Download clients, root folders, media management, naming conventions, quality profiles, and service interconnections
+   - Seerr connected to Radarr, Sonarr, and Plex/Jellyfin
+   - Plex libraries (Movies + TV Shows) if claim token was provided
+   - Default public indexer (1337x) in Prowlarr
 
 > **First run takes 5–15 minutes** (mostly downloading Docker images). Subsequent starts take seconds.
 >
@@ -210,6 +220,11 @@ The setup script pre-seeds and auto-configures as much as possible so you don't 
 | **Prowlarr** | Sonarr app | Connected with API key, full sync, TV categories |
 | **Radarr** | Plex notification | Triggers instant Plex library scan on import/upgrade/delete (Plex only) |
 | **Sonarr** | Plex notification | Triggers instant Plex library scan on import/upgrade/delete (Plex only) |
+| **Prowlarr** | Default indexer | 1337x pre-added as a public torrent indexer |
+| **Seerr** | Radarr connection | Pre-configured with Radarr hostname, port, and API key |
+| **Seerr** | Sonarr connection | Pre-configured with Sonarr hostname, port, and API key |
+| **Seerr** | Plex/Jellyfin | Pre-configured with media server connection |
+| **Plex** | Libraries | Movies + TV Shows libraries auto-added (requires claim token) |
 
 ### File Naming Examples
 
