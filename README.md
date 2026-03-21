@@ -274,7 +274,7 @@ After the script finishes, only a few manual steps remain. Follow these in order
 Decypharr is the critical bridge between your media managers and TorBox. **Nothing else works if Decypharr isn't set up correctly**, so do this first.
 
 1. Open **http://localhost:8282** in your browser
-2. Log in with the **pre-seeded credentials** shown at the end of setup (username: `torbox`, password: shown in the post-install output). You can also find them in the `.env` file: `cat torbox-media-server/.env | grep DECYPHARR`
+2. Log in with the **pre-seeded credentials** shown at the end of setup (username: `torbox`, password: shown in the post-install output). You can also find them in the `.env` file: `grep DECYPHARR torbox-media-server/.env`
 3. Verify the pre-configured settings:
    - **Debrid** tab: TorBox API key should be shown ✓, Rclone Folder set to `/mnt/remote/torbox/__all__` ✓, WebDAV enabled ✓
    - **Rclone** tab: Mount should be **enabled** ✓, mount path `/mnt/remote` ✓

@@ -126,10 +126,6 @@ run_with_spinner() {
     local msg="$1"; shift
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local tmpfile; tmpfile=$(mktemp)
-    # Save existing RETURN trap and chain cleanup
-    local _old_return_trap
-    _old_return_trap="$(trap -p RETURN 2>/dev/null | sed "s/.*'\(.*\)'.*/\1/")" || true
-    trap 'rm -f "$tmpfile"; '"${_old_return_trap:+eval \"$_old_return_trap\";}"'' RETURN
     "$@" > "$tmpfile" 2>&1 &
     local pid=$! i=0
     while kill -0 "$pid" 2>/dev/null; do
@@ -149,8 +145,8 @@ run_with_spinner() {
 COMPOSE_CMD=()
 _COMPOSE_SUDO_WARNED=false
 detect_compose_cmd() {
-    if docker info &>/dev/null 2>&1; then
-        if docker compose version &>/dev/null 2>&1; then
+    if docker info &>/dev/null; then
+        if docker compose version &>/dev/null; then
             COMPOSE_CMD=(docker compose)
         else
             COMPOSE_CMD=(docker-compose)
@@ -160,7 +156,7 @@ detect_compose_cmd() {
             log_warn "Docker socket not accessible in current shell — using sudo."
             _COMPOSE_SUDO_WARNED=true
         fi
-        if sudo docker compose version &>/dev/null 2>&1; then
+        if sudo docker compose version &>/dev/null; then
             COMPOSE_CMD=(sudo docker compose)
         else
             COMPOSE_CMD=(sudo docker-compose)
@@ -1256,8 +1252,8 @@ MANAGE_EOF
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
 detect_compose_cmd() {
-    if docker info &>/dev/null 2>&1; then
-        if docker compose version &>/dev/null 2>&1; then
+    if docker info &>/dev/null; then
+        if docker compose version &>/dev/null; then
             COMPOSE_CMD=(docker compose)
         else
             COMPOSE_CMD=(docker-compose)
@@ -1267,7 +1263,7 @@ detect_compose_cmd() {
             log_warn "Docker socket not accessible in current shell — using sudo."
             _COMPOSE_SUDO_WARNED=true
         fi
-        if sudo docker compose version &>/dev/null 2>&1; then
+        if sudo docker compose version &>/dev/null; then
             COMPOSE_CMD=(sudo docker compose)
         else
             COMPOSE_CMD=(sudo docker-compose)
@@ -1859,28 +1855,36 @@ c['seriesFolderFormat'] = '{Series TitleYear}'
     fi
 
     echo ""
-    log_info "Auto-configuration complete."
+    log_info "Core auto-configuration complete."
 
-    # --- Seerr auto-config ---
-    configure_seerr
+    # --- Additional auto-config (each logs its own success/failure) ---
+    echo ""
+    local _failed=0
 
-    # --- Plex library auto-config ---
-    configure_plex_libraries
+    configure_seerr || _failed=$((_failed + 1))
 
-    # --- Default indexer ---
+    configure_plex_libraries || _failed=$((_failed + 1))
+
     if [[ "$prowlarr_ready" == "true" ]]; then
-        add_default_indexer
+        add_default_indexer || _failed=$((_failed + 1))
     fi
 
-    # --- Auto-configure authentication for *arr services ---
     if [[ "$radarr_ready" == "true" ]]; then
-        configure_arr_auth "Radarr" "$radarr_url" "$RADARR_API_KEY"
+        configure_arr_auth "Radarr" "$radarr_url" "$RADARR_API_KEY" || _failed=$((_failed + 1))
     fi
     if [[ "$sonarr_ready" == "true" ]]; then
-        configure_arr_auth "Sonarr" "$sonarr_url" "$SONARR_API_KEY"
+        configure_arr_auth "Sonarr" "$sonarr_url" "$SONARR_API_KEY" || _failed=$((_failed + 1))
     fi
     if [[ "$prowlarr_ready" == "true" ]]; then
-        configure_arr_auth "Prowlarr" "$prowlarr_url" "$PROWLARR_API_KEY"
+        configure_arr_auth "Prowlarr" "$prowlarr_url" "$PROWLARR_API_KEY" || _failed=$((_failed + 1))
+    fi
+
+    echo ""
+    if [[ $_failed -eq 0 ]]; then
+        log_info "All auto-configuration steps completed successfully."
+    else
+        log_warn "${_failed} auto-config step(s) had warnings. Check the output above for details."
+        log_warn "You can fix these manually via the web UI, or re-run ./setup.sh to retry."
     fi
 }
 
@@ -2449,8 +2453,10 @@ check_existing_installation() {
         echo "  Re-running will regenerate Docker Compose, configs, and systemd service."
         echo "  Your existing API keys will be PRESERVED to avoid breaking integrations."
         echo ""
-        local rerun="y"
-        if [[ "$NON_INTERACTIVE" != "true" ]]; then
+        local rerun=""
+        if [[ "$NON_INTERACTIVE" == "true" ]]; then
+            rerun="y"
+        else
             read -rp "Continue with re-configuration? [y/N]: " rerun
         fi
         if [[ "${rerun,,}" != "y" ]]; then
