@@ -124,9 +124,7 @@ The setup script checks for these and can install them automatically:
 |---|---|---|
 | **Docker** + **Docker Compose** | Runs all services in containers | ✅ Yes |
 | **FUSE** | Enables rclone WebDAV mounts | Checked (usually pre-installed) |
-| **python3** | JSON manipulation for advanced auto-configuration | Not installed by script* |
-
-\* If python3 is not present, the script still works — it just skips advanced configuration (media management, naming, quality profiles) and you'd configure those manually. Python3 is pre-installed on most Linux distributions.
+| **jq** | JSON manipulation for advanced auto-configuration | ✅ Yes |
 
 ## Quick Start
 
@@ -158,7 +156,7 @@ The script will interactively ask you for:
 
 Then the script automatically:
 
-1. Checks and installs dependencies (Docker, FUSE)
+1. Checks and installs dependencies (Docker, FUSE, jq, openssl)
 2. Creates the full directory structure
 3. Generates Decypharr config with your TorBox API key
 4. Pre-seeds API keys into Radarr, Sonarr, and Prowlarr config files
@@ -568,9 +566,9 @@ This means the API auto-configuration didn't run (e.g., you chose not to start s
 
 ### Media management / naming not configured
 
-If python3 wasn't available during setup, advanced configuration (naming conventions, media management, quality profiles) is skipped. You can:
+If jq wasn't available during setup, advanced configuration (naming conventions, media management, quality profiles) is skipped. You can:
 
-1. Install python3 and re-run `./setup.sh`
+1. Install jq and re-run `./setup.sh`
 2. Configure manually:
    - **Media Management** → Disable "Use Hardlinks instead of Copy" (**critical** for debrid setups!)
    - **Media Management** → Enable "Import Extra Files" with extensions: `srt,sub,idx,ass,ssa,nfo`
@@ -651,7 +649,7 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Systemd auto-start** — a `torbox-media-server.service` unit handles mount propagation and container startup on boot, so users never have to manually start services after a reboot
 - **`DisabledForLocalAddresses` auth** — allows the setup script's API calls to configure services on first launch without requiring credentials; users should enable full auth afterward
 - **Pre-seeded API keys** — generated during setup and injected into config.xml before containers start, enabling fully automated API-based configuration
-- **python3 for JSON manipulation** — used to GET/modify/PUT *arr config endpoints; gracefully skipped if not installed
+- **jq for JSON manipulation** — used to modify *arr config via API; auto-installed as a dependency
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
 - **Docker images pinned to specific versions** — avoids breakage from upstream changes; re-run `setup.sh` to pick up newer versions intentionally
 - **Decypharr config mounted read-only** — config.json is bind-mounted as `:ro` to prevent containers from accidentally modifying it
