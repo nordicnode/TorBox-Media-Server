@@ -11,6 +11,18 @@ manage.sh
 configs/
 data/
 
+# Ignore generated installation and backups
+torbox-media-server/
+backups/
+*.bak.*
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
 # OS generated files
 .DS_Store
 Thumbs.db

@@ -6,6 +6,13 @@ set -euo pipefail
 #  Removes all containers, configs, data, and systemd service.
 # ============================================================================
 
+NON_INTERACTIVE=false
+for arg in "$@"; do
+    case "$arg" in
+        -y|--yes|--non-interactive) NON_INTERACTIVE=true ;;
+    esac
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${SCRIPT_DIR}/torbox-media-server"
 ENV_FILE="${INSTALL_DIR}/.env"
@@ -69,10 +76,12 @@ echo "  - Mount point and propagation"
 echo ""
 echo -e "${RED}Your TorBox account and cloud-stored media are NOT affected.${NC}"
 echo ""
-read -rp "Are you sure you want to uninstall? [y/N]: " confirm
-if [[ "${confirm,,}" != "y" ]]; then
-    log_info "Uninstall cancelled."
-    exit 0
+if [[ "$NON_INTERACTIVE" != "true" ]]; then
+    read -rp "Are you sure you want to uninstall? [y/N]: " confirm
+    if [[ "${confirm,,}" != "y" ]]; then
+        log_info "Uninstall cancelled."
+        exit 0
+    fi
 fi
 
 echo ""
@@ -82,7 +91,6 @@ log_info "Stopping and removing Docker containers..."
 if [[ -f "${ENV_FILE}" && -f "${COMPOSE_FILE}" ]]; then
     compose_cmd down --remove-orphans 2>/dev/null || {
         log_warn "Docker compose down failed. Attempting manual cleanup..."
-        # Try to stop containers by name
         for svc in decypharr prowlarr byparr radarr sonarr seerr plex jellyfin; do
             docker rm -f "$svc" 2>/dev/null || true
         done
@@ -94,8 +102,9 @@ else
     done
 fi
 
-# Remove the Docker network if it exists
-docker network rm torbox-media-server_media-network 2>/dev/null || true
+# Remove the Docker network (dynamically computed from project directory name)
+local_project_name="$(basename "${SCRIPT_DIR}")"
+docker network rm "${local_project_name}_media-network" 2>/dev/null || true
 
 # Step 2: Remove systemd service
 log_info "Removing systemd service..."
@@ -113,35 +122,54 @@ fi
 log_info "Cleaning up mount propagation..."
 MOUNT_DIR="$(env_val MOUNT_DIR)"
 if [[ -n "${MOUNT_DIR}" && -d "${MOUNT_DIR}" ]]; then
-    # Unmount any FUSE mounts inside the mount directory
+    # Unmount any FUSE sub-mounts first (rclone may create nested mounts)
+    sudo umount -l "${MOUNT_DIR}"/** 2>/dev/null || true
+    # Unmount the FUSE mount itself
     if mountpoint -q "${MOUNT_DIR}" 2>/dev/null; then
         sudo umount -l "${MOUNT_DIR}" 2>/dev/null || true
     fi
-    # Also try to unmount the bind mount
+    # Unmount the bind mount
     sudo umount -l "${MOUNT_DIR}" 2>/dev/null || true
     sudo rmdir "${MOUNT_DIR}" 2>/dev/null || {
         log_warn "Could not remove mount directory ${MOUNT_DIR} (may not be empty)."
     }
 fi
 
-# Step 4: Remove installation directory
+# Step 4: Read images before deleting directory (for optional cleanup later)
+local_images=()
+if [[ -f "${COMPOSE_FILE}" ]]; then
+    while IFS= read -r img; do
+        [[ -n "$img" ]] && local_images+=("$img")
+    done < <(grep 'image:' "${COMPOSE_FILE}" | awk '{print $2}')
+fi
+
+# Step 5: Remove installation directory
 log_info "Removing installation directory..."
 rm -rf "${INSTALL_DIR}"
 log_info "Removed: ${INSTALL_DIR}"
 
-# Step 5: Optionally remove Docker images
+# Step 6: Optionally remove Docker images
 echo ""
-read -rp "Remove Docker images to free ~5-8 GB of disk space? [y/N]: " remove_images
+if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    remove_images="n"
+else
+    read -rp "Remove Docker images to free ~5-8 GB of disk space? [y/N]: " remove_images
+fi
 if [[ "${remove_images,,}" == "y" ]]; then
     log_info "Removing Docker images..."
-    if [[ -f "${COMPOSE_FILE}" ]]; then
-        # Dynamically extract the exact pinned images from the compose file
-        for img in $(grep 'image:' "${COMPOSE_FILE}" | awk '{print $2}'); do
-            docker rmi "$img" 2>/dev/null && log_info "  Removed: $img" || true
+    local_removed=0
+    if [[ ${#local_images[@]} -gt 0 ]]; then
+        for img in "${local_images[@]}"; do
+            if docker rmi "$img" 2>/dev/null; then
+                log_info "  Removed: $img"
+                local_removed=$((local_removed + 1))
+            fi
         done
-        log_info "Docker images removed."
+    fi
+    if [[ $local_removed -gt 0 ]]; then
+        log_info "Removed ${local_removed} Docker image(s)."
     else
-        log_warn "Cannot find compose file to determine images to remove."
+        log_warn "No images were removed (they may have already been cleaned up)."
     fi
 else
     log_info "Docker images kept. Remove them later with: docker rmi <image-name>"

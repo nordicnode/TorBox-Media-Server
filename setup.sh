@@ -328,12 +328,12 @@ install_dependencies() {
         for dep in "${deps[@]}"; do
             case "$dep" in
                 docker)
-                    sudo pacman -S --noconfirm docker docker-compose
+                    sudo pacman -S --noconfirm docker docker-compose-plugin
                     sudo systemctl enable --now docker
                     sudo usermod -aG docker "$USER"
                     ;;
                 docker-compose)
-                    sudo pacman -S --noconfirm docker-compose
+                    sudo pacman -S --noconfirm docker-compose-plugin
                     ;;
                 curl)
                     sudo pacman -S --noconfirm curl
@@ -1923,7 +1923,7 @@ configure_plex_libraries() {
 
     # Remove expired claim token from .env (token expires in 4 min and is single-use)
     if [[ -f "${ENV_FILE}" ]]; then
-        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "${ENV_FILE}"
+        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "${ENV_FILE}" || true
         log_info "  Plex claim token removed from .env (expired after first use)."
     fi
 }
@@ -2393,9 +2393,7 @@ main() {
     print_banner
     check_existing_installation
     check_dependencies
-    check_port_conflicts
     gather_config
-    # Re-check ports now that media server is known
     check_port_conflicts
     create_directories
     generate_decypharr_config
