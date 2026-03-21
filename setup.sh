@@ -133,6 +133,14 @@ detect_compose_cmd() {
     fi
 }
 
+# Run a docker compose command with correct env-file and compose-file
+compose_cmd() {
+    if [[ ${#COMPOSE_CMD[@]} -eq 0 ]]; then
+        detect_compose_cmd
+    fi
+    "${COMPOSE_CMD[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+}
+
 # ============================================================================
 #  Dependency Checks
 # ============================================================================
@@ -1061,8 +1069,7 @@ COMPOSE_JF_HW
     log_info "Docker Compose file written."
 
     # Validate the generated Compose file
-    detect_compose_cmd
-    if run_with_spinner "Validating Docker Compose file..." "${COMPOSE_CMD[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" config -q; then
+    if run_with_spinner "Validating Docker Compose file..." compose_cmd config -q; then
         log_info "Docker Compose file validated successfully."
     else
         log_warn "Docker Compose validation failed. The generated file may have issues."
@@ -1108,23 +1115,14 @@ env_val() {
     grep "^${key}=" "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'"
 }
 
-compose_cmd() {
-    local -a cmd
-    if docker info &>/dev/null 2>&1; then
-        if docker compose version &>/dev/null 2>&1; then
-            cmd=(docker compose)
-        else
-            cmd=(docker-compose)
-        fi
-    else
-        if sudo docker compose version &>/dev/null 2>&1; then
-            cmd=(sudo docker compose)
-        else
-            cmd=(sudo docker-compose)
-        fi
-    fi
-    "${cmd[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
-}
+COMPOSE_CMD=()
+_COMPOSE_SUDO_WARNED=false
+MANAGE_EOF
+
+    # Inject shared functions to reduce duplication
+    declare -f log_warn detect_compose_cmd compose_cmd >> "${INSTALL_DIR}/manage.sh"
+
+    cat >> "${INSTALL_DIR}/manage.sh" << 'MANAGE_EOF'
 
 ensure_mount_propagation() {
     local mount_dir
@@ -1951,9 +1949,7 @@ start_services() {
         log_step "Starting Docker containers (first run downloads ~5-8 GB of images, this may take several minutes)..."
         cd "${INSTALL_DIR}"
 
-        detect_compose_cmd
-
-        if ! "${COMPOSE_CMD[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans; then
+        if ! compose_cmd up -d --remove-orphans; then
             log_error "Failed to start services. Check your internet connection and disk space."
             log_error "Try running: cd ${INSTALL_DIR} && docker compose --env-file .env -f docker-compose.yml up -d"
             return 1
