@@ -11,7 +11,20 @@ set -euo pipefail
 #  Designed for CachyOS (Arch-based) but works on most Linux distros.
 # ============================================================================
 
-trap 'echo ""; log_warn "Setup interrupted. Re-run to continue where you left off."; exit 130' INT TERM
+trap 'cleanup_on_interrupt' INT TERM
+
+cleanup_on_interrupt() {
+    echo ""
+    # If setup never completed (.env not written), remove partial installation
+    if [[ ! -f "${ENV_FILE}" && -d "${INSTALL_DIR}" ]]; then
+        log_warn "Setup interrupted before completion. Cleaning up partial installation..."
+        rm -rf "${INSTALL_DIR}"
+        log_info "Partial installation removed. Re-run setup.sh to start fresh."
+    else
+        log_warn "Setup interrupted. Re-run to continue where you left off."
+    fi
+    exit 130
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${SCRIPT_DIR}/torbox-media-server"
@@ -176,10 +189,12 @@ check_dependencies() {
         missing+=("docker")
     fi
 
-    if ! docker compose version &>/dev/null 2>&1; then
-        if ! command -v docker-compose &>/dev/null; then
-            missing+=("docker-compose")
-        fi
+    if docker compose version &>/dev/null 2>&1; then
+        log_info "Docker Compose: using v2 plugin (docker compose)."
+    elif command -v docker-compose &>/dev/null; then
+        log_info "Docker Compose: using v1 standalone (docker-compose)."
+    else
+        missing+=("docker-compose")
     fi
 
     if ! command -v curl &>/dev/null; then
@@ -679,6 +694,13 @@ generate_decypharr_config() {
         return 0
     fi
 
+    # Generate credentials for Decypharr web UI
+    DECYPHARR_USER="torbox"
+    DECYPHARR_PASS="$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 12)"
+    if [[ -z "$DECYPHARR_PASS" ]]; then
+        DECYPHARR_PASS="$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
+    fi
+
     cat > "${CONFIG_DIR}/decypharr/config.json" << DECYPHARR_EOF
 {
   "debrids": [
@@ -698,13 +720,15 @@ generate_decypharr_config() {
     "download_folder": "/data/downloads/",
     "categories": ["sonarr", "radarr"]
   },
+  "username": "${DECYPHARR_USER}",
+  "password": "${DECYPHARR_PASS}",
   "port": "8282",
   "log_level": "info"
 }
 DECYPHARR_EOF
 
     chmod 600 "${CONFIG_DIR}/decypharr/config.json"
-    log_info "Decypharr config written."
+    log_info "Decypharr config written with pre-seeded credentials."
 }
 
 # ============================================================================
@@ -835,6 +859,10 @@ PLEX_CLAIM="${PLEX_CLAIM:-}"
 RADARR_API_KEY="${RADARR_API_KEY}"
 SONARR_API_KEY="${SONARR_API_KEY}"
 PROWLARR_API_KEY="${PROWLARR_API_KEY}"
+
+# Decypharr credentials (pre-seeded)
+DECYPHARR_USER="${DECYPHARR_USER:-torbox}"
+DECYPHARR_PASS="${DECYPHARR_PASS:-}"
 ENV_EOF
 
     chmod 600 "${ENV_FILE}"
@@ -1122,8 +1150,8 @@ COMPOSE_PLEX_HW
     networks:
       - media-network
     ports:
-      - "127.0.0.1:8096:8096"
-      - "127.0.0.1:8920:8920"
+      - "8096:8096"
+      - "8920:8920"
     environment:
       - PUID=\${PUID}
       - PGID=\${PGID}
@@ -1433,13 +1461,24 @@ generate_systemd_service() {
     local service_name="torbox-media-server"
     local service_file="/etc/systemd/system/${service_name}.service"
 
-    # Resolve absolute path to docker binary (required by systemd)
-    local docker_bin
-    docker_bin="$(command -v docker)"
-    local compose_args="compose"
-    if ! docker compose version &>/dev/null 2>&1; then
+    # Resolve absolute path and compose subcommand for systemd ExecStart
+    local docker_bin compose_args
+    if docker compose version &>/dev/null 2>&1; then
+        docker_bin="$(command -v docker)"
+        compose_args="compose"
+    elif docker-compose version &>/dev/null 2>&1; then
         docker_bin="$(command -v docker-compose)"
         compose_args=""
+    elif sudo docker compose version &>/dev/null 2>&1; then
+        docker_bin="$(command -v docker)"
+        compose_args="compose"
+    elif sudo docker-compose version &>/dev/null 2>&1; then
+        docker_bin="$(command -v docker-compose)"
+        compose_args=""
+    else
+        log_warn "Could not detect Docker Compose. Systemd service may not work."
+        docker_bin="docker"
+        compose_args="compose"
     fi
 
     sudo tee "${service_file}" > /dev/null << SYSTEMD_EOF
@@ -1883,6 +1922,18 @@ configure_seerr() {
        echo "$seerr_settings" | grep -q '"hostname": "radarr"' 2>/dev/null; then
         log_info "  Seerr already has Radarr configured."
     else
+        # Query Radarr's default quality profile
+        local radarr_profile_id=1 radarr_profile_name="HD-1080p"
+        local radarr_profiles
+        radarr_profiles=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${RADARR_API_KEY}" \
+            "http://localhost:${SVC_PORTS[radarr]}/api/v3/qualityprofile" 2>/dev/null) || true
+        if [[ -n "$radarr_profiles" ]]; then
+            local _id _name
+            _id=$(echo "$radarr_profiles" | python3 -c "import json,sys; p=json.loads(sys.stdin.read()); print(p[0]['id'] if p else 1)" 2>/dev/null) || true
+            _name=$(echo "$radarr_profiles" | python3 -c "import json,sys; p=json.loads(sys.stdin.read()); print(p[0]['name'] if p else 'HD-1080p')" 2>/dev/null) || true
+            [[ -n "$_id" ]] && radarr_profile_id="$_id"
+            [[ -n "$_name" ]] && radarr_profile_name="$_name"
+        fi
         # Add Radarr to Seerr
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
             -H "Content-Type: application/json" \
@@ -1894,15 +1945,15 @@ configure_seerr() {
                 "apiKey": "'"${RADARR_API_KEY}"'",
                 "useSsl": false,
                 "baseUrl": "",
-                "activeProfileId": 1,
-                "activeProfileName": "HD-1080p",
+                "activeProfileId": '"${radarr_profile_id}"',
+                "activeProfileName": "'"${radarr_profile_name}"'",
                 "activeDirectory": "/data/media/movies",
                 "is4k": false,
                 "minimumAvailability": "released",
                 "tags": [],
                 "isDefault": true,
                 "externalUrl": ""
-            }' -o /dev/null 2>/dev/null && log_info "  Radarr added to Seerr." \
+            }' -o /dev/null 2>/dev/null && log_info "  Radarr added to Seerr (profile: ${radarr_profile_name})." \
             || log_warn "  Failed to add Radarr to Seerr. You can configure it manually."
     fi
 
@@ -1911,6 +1962,18 @@ configure_seerr() {
        echo "$seerr_settings" | grep -q '"hostname": "sonarr"' 2>/dev/null; then
         log_info "  Seerr already has Sonarr configured."
     else
+        # Query Sonarr's default quality profile
+        local sonarr_profile_id=1 sonarr_profile_name="HD-1080p"
+        local sonarr_profiles
+        sonarr_profiles=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${SONARR_API_KEY}" \
+            "http://localhost:${SVC_PORTS[sonarr]}/api/v3/qualityprofile" 2>/dev/null) || true
+        if [[ -n "$sonarr_profiles" ]]; then
+            local _id _name
+            _id=$(echo "$sonarr_profiles" | python3 -c "import json,sys; p=json.loads(sys.stdin.read()); print(p[0]['id'] if p else 1)" 2>/dev/null) || true
+            _name=$(echo "$sonarr_profiles" | python3 -c "import json,sys; p=json.loads(sys.stdin.read()); print(p[0]['name'] if p else 'HD-1080p')" 2>/dev/null) || true
+            [[ -n "$_id" ]] && sonarr_profile_id="$_id"
+            [[ -n "$_name" ]] && sonarr_profile_name="$_name"
+        fi
         # Add Sonarr to Seerr
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
             -H "Content-Type: application/json" \
@@ -1922,14 +1985,14 @@ configure_seerr() {
                 "apiKey": "'"${SONARR_API_KEY}"'",
                 "useSsl": false,
                 "baseUrl": "",
-                "activeProfileId": 1,
-                "activeProfileName": "HD-1080p",
+                "activeProfileId": '"${sonarr_profile_id}"',
+                "activeProfileName": "'"${sonarr_profile_name}"'",
                 "activeDirectory": "/data/media/tv",
                 "is4k": false,
                 "tags": [],
                 "isDefault": true,
                 "externalUrl": ""
-            }' -o /dev/null 2>/dev/null && log_info "  Sonarr added to Seerr." \
+            }' -o /dev/null 2>/dev/null && log_info "  Sonarr added to Seerr (profile: ${sonarr_profile_name})." \
             || log_warn "  Failed to add Sonarr to Seerr. You can configure it manually."
     fi
 
@@ -2208,28 +2271,24 @@ print_post_install() {
     echo ""
     echo -e "${CYAN}1. Decypharr (do first)${NC}"
     echo "   • Open http://localhost:8282"
-    echo -e "   • ${YELLOW}Set up credentials on first launch${NC}"
+    echo -e "   • ${GREEN}Credentials pre-seeded ✓${NC}"
+    echo -e "   •   Username: ${BOLD}${DECYPHARR_USER:-torbox}${NC}"
+    echo -e "   •   Password: ${BOLD}${DECYPHARR_PASS:-<see .env>}${NC}"
     echo -e "   • ${GREEN}TorBox API key pre-configured ✓${NC}"
     echo -e "   • ${GREEN}Rclone Folder set to /mnt/remote/torbox/__all__ ✓${NC}"
     echo -e "   • ${GREEN}WebDAV enabled ✓${NC}"
     echo -e "   • ${GREEN}Rclone mount enabled, path /mnt/remote ✓${NC}"
-    echo "   • After creating credentials, verify the above in Debrid & Rclone tabs"
+    echo "   • After logging in, verify the above in Debrid & Rclone tabs"
     echo ""
     echo -e "${CYAN}2. Prowlarr${NC}"
     echo "   • Open http://localhost:9696"
-    echo -e "   • ${YELLOW}Set up authentication (Settings → General → Authentication)${NC}"
+    echo -e "   • ${YELLOW}Create login credentials (Settings → General → Authentication)${NC}"
     if [[ "$SERVICES_STARTED" == "true" ]]; then
         echo -e "   • ${GREEN}Byparr proxy already configured ✓${NC}"
         echo -e "   • ${GREEN}Radarr & Sonarr apps already connected ✓${NC}"
         echo -e "   • ${GREEN}Default indexer (1337x) already added ✓${NC}"
     else
-        echo "   • Add FlareSolverr proxy: Settings → Indexers → Add → FlareSolverr"
-        echo "     - Tag: flaresolverr"
-        echo "     - Host: http://byparr:8191"
-        echo "   • Add Radarr & Sonarr as apps: Settings → Apps → Add"
-        echo "     - Radarr: http://radarr:7878  (API key: $(mask_key "${RADARR_API_KEY}"))"
-        echo "     - Sonarr: http://sonarr:8989  (API key: $(mask_key "${SONARR_API_KEY}"))"
-        echo "   • Add indexers (torrent sites) you want to use"
+        echo "   • Configure Byparr proxy, Radarr/Sonarr apps, and indexers manually (see README)"
     fi
     echo ""
     echo -e "${CYAN}3. Radarr${NC}"

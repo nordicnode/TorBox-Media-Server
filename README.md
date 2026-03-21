@@ -90,7 +90,7 @@ User Request                Search & Automation           Cloud Download
 | **Plex** | 32400 | Media server option 1. Streams your library to any device. Requires a free Plex account. |
 | **Jellyfin** | 8096 | Media server option 2 (open-source, no account needed). Streams your library to any device. |
 
-> **Note:** All service ports except Plex are bound to `127.0.0.1` (localhost only) by default for security. Plex binds to all interfaces (`0.0.0.0:32400`) so other devices on your LAN can stream. See [Accessing From Other Devices](#accessing-from-other-devices) to open access for other services.
+> **Note:** All service ports except Plex and Jellyfin are bound to `127.0.0.1` (localhost only) by default for security. Plex and Jellyfin bind to all interfaces so other devices on your LAN can stream. See [Accessing From Other Devices](#accessing-from-other-devices) to open access for other services.
 
 ## Before You Begin
 
@@ -269,13 +269,13 @@ After the script finishes, only a few manual steps remain. Follow these in order
 
 ---
 
-### Step 1: Verify Decypharr (~5 minutes)
+### Step 1: Verify Decypharr (~2 minutes)
 
 Decypharr is the critical bridge between your media managers and TorBox. **Nothing else works if Decypharr isn't set up correctly**, so do this first.
 
 1. Open **http://localhost:8282** in your browser
-2. On first launch, you'll see a setup page — create your Decypharr credentials (username & password)
-3. After logging in, verify the pre-configured settings:
+2. Log in with the **pre-seeded credentials** shown at the end of setup (username: `torbox`, password: shown in the post-install output). You can also find them in the `.env` file: `cat torbox-media-server/.env | grep DECYPHARR`
+3. Verify the pre-configured settings:
    - **Debrid** tab: TorBox API key should be shown ✓, Rclone Folder set to `/mnt/remote/torbox/__all__` ✓, WebDAV enabled ✓
    - **Rclone** tab: Mount should be **enabled** ✓, mount path `/mnt/remote` ✓
    - All of the above are pre-configured by the setup script — just verify they look correct
@@ -654,7 +654,9 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **python3 for JSON manipulation** — used to GET/modify/PUT *arr config endpoints; gracefully skipped if not installed
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
 - **Docker images pinned to specific versions** — avoids breakage from upstream changes; re-run `setup.sh` to pick up newer versions intentionally
-- **Decypharr config mounted read-only** — prevents containers from accidentally modifying their own configuration
+- **Decypharr config mounted read-only** — config.json is bind-mounted as `:ro` to prevent containers from accidentally modifying it
+- **Decypharr credentials pre-seeded** — generated during setup and injected into config.json, eliminating manual credential creation
+- **Plex and Jellyfin on all interfaces** — both media servers expose their ports on all interfaces for LAN streaming consistency; other services remain localhost-only for security
 
 ## Updating
 

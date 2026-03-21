@@ -32,7 +32,7 @@ env_val() {
 # Detect the correct docker compose command
 COMPOSE_CMD=()
 detect_compose_cmd() {
-    if docker info &>/dev/null 2>&1; then
+    if docker info &>/dev/null; then
         if docker compose version &>/dev/null 2>&1; then
             COMPOSE_CMD=(docker compose)
         else
