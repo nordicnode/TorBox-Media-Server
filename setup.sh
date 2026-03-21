@@ -1193,7 +1193,7 @@ COMPOSE_JF_HW
     log_info "Docker Compose file written."
 
     # Validate the generated Compose file (only if Docker daemon is accessible)
-    if docker info &>/dev/null 2>&1 || sudo docker info &>/dev/null 2>&1; then
+    if docker info &>/dev/null || sudo docker info &>/dev/null; then
         if run_with_spinner "Validating Docker Compose file..." compose_cmd config -q; then
             log_info "Docker Compose file validated successfully."
         else
