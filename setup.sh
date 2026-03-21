@@ -20,6 +20,11 @@ cleanup_on_interrupt() {
         log_warn "Setup interrupted before completion. Cleaning up partial installation..."
         rm -rf "${INSTALL_DIR}"
         log_info "Partial installation removed. Re-run setup.sh to start fresh."
+    elif [[ -f "${ENV_FILE}" && ! -f "${SETUP_COMPLETE_FILE}" ]]; then
+        # .env exists but setup_complete doesn't — install was interrupted mid-config
+        log_warn "Setup interrupted during configuration. Cleaning up incomplete installation..."
+        rm -rf "${INSTALL_DIR}"
+        log_info "Incomplete installation removed. Re-run setup.sh to start fresh."
     else
         log_warn "Setup interrupted. Re-run to continue where you left off."
     fi
@@ -33,6 +38,7 @@ DATA_DIR="${INSTALL_DIR}/data"
 MOUNT_DIR="/mnt/torbox-media"
 ENV_FILE="${INSTALL_DIR}/.env"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
+SETUP_COMPLETE_FILE="${INSTALL_DIR}/.setup_complete"
 
 # Docker image versions (pinned for reproducibility)
 IMAGE_DECYPHARR="cy01/blackhole:1.6.3"
@@ -191,6 +197,10 @@ check_dependencies() {
         missing+=("jq")
     fi
 
+    if ! command -v openssl &>/dev/null; then
+        missing+=("openssl")
+    fi
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_warn "Missing dependencies: ${missing[*]}"
         echo ""
@@ -330,6 +340,9 @@ install_dependencies() {
                 jq)
                     sudo pacman -S --noconfirm jq
                     ;;
+                openssl)
+                    sudo pacman -S --noconfirm openssl
+                    ;;
             esac
         done
     elif command -v apt-get &>/dev/null; then
@@ -350,6 +363,9 @@ install_dependencies() {
                 jq)
                     sudo apt-get install -y jq
                     ;;
+                openssl)
+                    sudo apt-get install -y openssl
+                    ;;
             esac
         done
     elif command -v dnf &>/dev/null; then
@@ -368,6 +384,9 @@ install_dependencies() {
                     ;;
                 jq)
                     sudo dnf install -y jq
+                    ;;
+                openssl)
+                    sudo dnf install -y openssl
                     ;;
             esac
         done
@@ -2099,7 +2118,7 @@ configure_plex_libraries() {
 
     # Remove expired claim token from .env (token expires in 4 min and is single-use)
     if [[ -f "${ENV_FILE}" ]]; then
-        sed -i '/^PLEX_CLAIM=/d' "${ENV_FILE}"
+        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "${ENV_FILE}"
         log_info "  Plex claim token removed from .env (expired after first use)."
     fi
 }
@@ -2431,7 +2450,7 @@ EXISTING_PROWLARR_API_KEY=""
 EXISTING_TORBOX_API_KEY=""
 
 check_existing_installation() {
-    if [[ -f "${ENV_FILE}" ]]; then
+    if [[ -f "${SETUP_COMPLETE_FILE}" ]]; then
         log_section "Existing Installation Detected"
         log_warn "A previous installation was found at: ${INSTALL_DIR}"
         echo ""
@@ -2483,6 +2502,13 @@ check_existing_installation() {
             log_info "Existing API keys loaded and will be preserved."
         fi
         echo ""
+    elif [[ -f "${ENV_FILE}" && ! -f "${SETUP_COMPLETE_FILE}" ]]; then
+        # .env exists but .setup_complete doesn't — previous run was interrupted
+        log_section "Incomplete Installation Detected"
+        log_warn "A previous setup was interrupted before completion."
+        log_warn "Starting fresh (incomplete state will be cleaned up)."
+        echo ""
+        rm -rf "${INSTALL_DIR}"
     fi
 }
 
@@ -2585,6 +2611,9 @@ main() {
         configure_arrs
     fi
     print_post_install
+
+    # Mark installation as complete for safe re-run detection
+    touch "${SETUP_COMPLETE_FILE}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
