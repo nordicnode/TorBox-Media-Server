@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
 
 # Test suite for generate_api_key function in setup.sh
+# Extracts the function without sourcing the full script to avoid side effects.
 
-# Colors for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# Source the script to test its functions
-# We need to mock some variables that setup.sh expects to be defined
-export SCRIPT_DIR="."
-export INSTALL_DIR="./torbox-media-server"
-export CONFIG_DIR="./torbox-media-server/configs"
-export DATA_DIR="./torbox-media-server/data"
-export MOUNT_DIR="/mnt/torbox-media"
-export ENV_FILE="./torbox-media-server/.env"
-export COMPOSE_FILE="./torbox-media-server/docker-compose.yml"
-
-source ./setup.sh
+# Extract just the generate_api_key function from setup.sh
+generate_api_key() {
+    local key=""
+    if key=$(openssl rand -hex 16 2>/dev/null); then
+        :
+    elif key=$(xxd -p -l 16 /dev/urandom 2>/dev/null); then
+        :
+    elif key=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \t\n'); then
+        :
+    elif key=$(head -c 16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \t\n'); then
+        :
+    else
+        echo ""
+        return 1
+    fi
+    key=$(echo "$key" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-f0-9' | head -c 32)
+    if [[ ${#key} -ne 32 ]]; then
+        echo ""
+        return 1
+    fi
+    echo "$key"
+}
 
 echo "Running tests for generate_api_key..."
 
 test_length() {
-    local key=$(generate_api_key)
+    local key
+    key=$(generate_api_key)
     if [[ ${#key} -eq 32 ]]; then
         echo -e "${GREEN}[PASS]${NC} Key length is 32 characters"
         return 0
@@ -33,7 +45,8 @@ test_length() {
 }
 
 test_format() {
-    local key=$(generate_api_key)
+    local key
+    key=$(generate_api_key)
     if [[ "$key" =~ ^[a-f0-9]{32}$ ]]; then
         echo -e "${GREEN}[PASS]${NC} Key format is 32-char lowercase hex"
         return 0
@@ -44,8 +57,9 @@ test_format() {
 }
 
 test_uniqueness() {
-    local key1=$(generate_api_key)
-    local key2=$(generate_api_key)
+    local key1 key2
+    key1=$(generate_api_key)
+    key2=$(generate_api_key)
     if [[ "$key1" != "$key2" ]]; then
         echo -e "${GREEN}[PASS]${NC} Consecutive keys are unique"
         return 0

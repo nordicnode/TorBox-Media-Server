@@ -1,0 +1,35 @@
+name: Lint & Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint setup.sh
+        run: shellcheck setup.sh
+
+      - name: Lint uninstall.sh
+        run: shellcheck uninstall.sh
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run API key tests
+        run: bash tests/test_api_key.sh
+
+      - name: Run setup function tests
+        run: bash tests/test_setup_functions.sh

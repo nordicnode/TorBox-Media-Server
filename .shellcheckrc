@@ -1,0 +1,8 @@
+# ShellCheck configuration for TorBox Media Server
+# https://github.com/koalaman/shellcheck/wiki/Directive
+
+# Disable specific warnings that are intentional or false positives
+disable=SC2034  # Unused variables (used in heredocs/indirectly)
+disable=SC2155  # Declare and assign separately (readability over style)
+disable=SC2086  # Double quote to prevent globbing (intentional for compose args)
+disable=SC2128  # Expanding array without index (used intentionally in some cases)

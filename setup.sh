@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-umask 077
 
 # ============================================================================
 #  TorBox Media Server - All-in-One Setup Script
@@ -22,13 +21,32 @@ MOUNT_DIR="/mnt/torbox-media"
 ENV_FILE="${INSTALL_DIR}/.env"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
 
+# Docker image versions (pinned for reproducibility)
+IMAGE_DECYPHARR="cy01/blackhole:1.6.3"
+IMAGE_PROWLARR="lscr.io/linuxserver/prowlarr:2.1.3"
+IMAGE_BYPARR="ghcr.io/thephaseless/byparr:1.2.2"
+IMAGE_RADARR="lscr.io/linuxserver/radarr:5.22.4"
+IMAGE_SONARR="lscr.io/linuxserver/sonarr:4.0.14"
+IMAGE_SEERR="ghcr.io/seerr-team/seerr:2.4.1"
+IMAGE_PLEX="lscr.io/linuxserver/plex:1.41.5"
+IMAGE_JELLYFIN="lscr.io/linuxserver/jellyfin:10.10.7"
+
 # Generate deterministic-length API keys (32-char hex, matching *arr format)
 generate_api_key() {
     local key=""
-    key=$(openssl rand -hex 16 2>/dev/null) \
-        || key=$(xxd -p -l 16 /dev/urandom 2>/dev/null) \
-        || key=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \t\n') \
-        || key=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \t\n')
+    # Try each generator, capturing only on success
+    if key=$(openssl rand -hex 16 2>/dev/null); then
+        :
+    elif key=$(xxd -p -l 16 /dev/urandom 2>/dev/null); then
+        :
+    elif key=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \t\n'); then
+        :
+    elif key=$(head -c 16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \t\n'); then
+        :
+    else
+        echo ""
+        return 1
+    fi
     # Normalize: lowercase, strip non-hex, take first 32 chars
     key=$(echo "$key" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-f0-9' | head -c 32)
     if [[ ${#key} -ne 32 ]]; then
@@ -253,7 +271,8 @@ check_port_conflicts() {
 
     for i in "${!ports_to_check[@]}"; do
         local port_in_use=false
-        if [[ "$network_stats" =~ :${ports_to_check[$i]}[[:space:]] ]]; then
+        # Use explicit word-boundary match to avoid partial port matches (e.g., 828 matching 8282)
+        if echo "$network_stats" | grep -qE ":${ports_to_check[$i]}[[:space:]]"; then
             port_in_use=true
         fi
         if [[ "$port_in_use" == "true" ]]; then
@@ -543,6 +562,11 @@ gather_config() {
 create_directories() {
     log_section "Creating Directory Structure"
 
+    # Directories need more permissive permissions for container access
+    local saved_umask
+    saved_umask="$(umask)"
+    umask 022
+
     mkdir -p "${INSTALL_DIR}"
     mkdir -p "${CONFIG_DIR}"/{prowlarr,radarr,sonarr,seerr,decypharr}
     mkdir -p "${DATA_DIR}"/{media/{movies,tv},downloads/{radarr,sonarr}}
@@ -552,6 +576,9 @@ create_directories() {
     else
         mkdir -p "${CONFIG_DIR}/jellyfin"
     fi
+
+    # Restore restrictive umask for subsequent file creation
+    umask "$saved_umask"
 
     # Create mount point
     sudo mkdir -p "${MOUNT_DIR}"
@@ -773,7 +800,7 @@ COMPOSE_HEADER
   # Mocks qBittorrent API for Radarr/Sonarr, connects to TorBox,
   # handles WebDAV mounting via built-in rclone, and creates symlinks.
   decypharr:
-    image: cy01/blackhole:latest
+    image: ${IMAGE_DECYPHARR}
     container_name: decypharr
     restart: unless-stopped
     networks:
@@ -785,7 +812,7 @@ COMPOSE_HEADER
       - PGID=\${PGID}
       - UMASK=002
     volumes:
-      - "${CONFIG_DIR}/decypharr:/app"
+      - "${CONFIG_DIR}/decypharr:/app:ro"
       - "${MOUNT_DIR}:/mnt/remote:rshared"
       - "${DATA_DIR}:/data"
     devices:
@@ -810,7 +837,7 @@ COMPOSE_HEADER
   # ── Prowlarr ───────────────────────────────────────────────────
   # Indexer manager - feeds search results to Radarr & Sonarr.
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
+    image: ${IMAGE_PROWLARR}
     container_name: prowlarr
     restart: unless-stopped
     networks:
@@ -840,7 +867,7 @@ COMPOSE_HEADER
   # ── Byparr ────────────────────────────────────────────────────
   # Cloudflare bypass proxy (Byparr - drop-in FlareSolverr replacement).
   byparr:
-    image: ghcr.io/thephaseless/byparr:latest
+    image: ${IMAGE_BYPARR}
     container_name: byparr
     restart: unless-stopped
     networks:
@@ -867,7 +894,7 @@ COMPOSE_HEADER
   # Movie management - searches, grabs, and organizes movies.
   # Uses Decypharr as its download client (qBittorrent mock).
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
+    image: ${IMAGE_RADARR}
     container_name: radarr
     restart: unless-stopped
     networks:
@@ -900,7 +927,7 @@ COMPOSE_HEADER
   # TV show management - searches, grabs, and organizes series.
   # Uses Decypharr as its download client (qBittorrent mock).
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: ${IMAGE_SONARR}
     container_name: sonarr
     restart: unless-stopped
     networks:
@@ -933,7 +960,7 @@ COMPOSE_HEADER
   # Media request & discovery frontend. Users request movies/shows
   # which get sent to Radarr/Sonarr automatically.
   seerr:
-    image: ghcr.io/seerr-team/seerr:latest
+    image: ${IMAGE_SEERR}
     container_name: seerr
     user: "\${PUID}:\${PGID}"
     restart: unless-stopped
@@ -970,7 +997,7 @@ COMPOSE_EOF
   # ── Plex ───────────────────────────────────────────────────────
   # Media server - streams your library to any device.
   plex:
-    image: lscr.io/linuxserver/plex:latest
+    image: ${IMAGE_PLEX}
     container_name: plex
     restart: unless-stopped
     networks:
@@ -1022,7 +1049,7 @@ COMPOSE_PLEX_HW
   # ── Jellyfin ───────────────────────────────────────────────────
   # Free & open-source media server - streams your library to any device.
   jellyfin:
-    image: lscr.io/linuxserver/jellyfin:latest
+    image: ${IMAGE_JELLYFIN}
     container_name: jellyfin
     restart: unless-stopped
     networks:
@@ -1073,11 +1100,15 @@ COMPOSE_JF_HW
     chmod 600 "${COMPOSE_FILE}"
     log_info "Docker Compose file written."
 
-    # Validate the generated Compose file
-    if run_with_spinner "Validating Docker Compose file..." compose_cmd config -q; then
-        log_info "Docker Compose file validated successfully."
+    # Validate the generated Compose file (only if Docker daemon is accessible)
+    if docker info &>/dev/null 2>&1 || sudo docker info &>/dev/null 2>&1; then
+        if run_with_spinner "Validating Docker Compose file..." compose_cmd config -q; then
+            log_info "Docker Compose file validated successfully."
+        else
+            log_warn "Docker Compose validation failed. The generated file may have issues."
+        fi
     else
-        log_warn "Docker Compose validation failed. The generated file may have issues."
+        log_warn "Docker daemon not accessible. Skipping Compose validation. Run 'docker compose config' to validate manually."
     fi
 }
 
@@ -1091,7 +1122,6 @@ generate_management_script() {
     cat > "${INSTALL_DIR}/manage.sh" << 'MANAGE_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
@@ -1228,6 +1258,7 @@ case "${1:-help}" in
         ;;
     keys)
         echo -e "\n${CYAN}━━━━ API Keys ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+        echo -e "  ${YELLOW}WARNING: Sensitive credentials below. Do not share this output.${NC}\n"
         echo -e "  ${BOLD}TorBox${NC}    $(env_val TORBOX_API_KEY)"
         echo -e "  ${BOLD}Radarr${NC}    $(env_val RADARR_API_KEY)"
         echo -e "  ${BOLD}Sonarr${NC}    $(env_val SONARR_API_KEY)"
@@ -1503,15 +1534,15 @@ update_arr_config() {
     config=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${api_key}" "${url}/api/v3/${endpoint}" 2>/dev/null) || true
     [[ -z "$config" ]] && { log_warn "  Could not retrieve ${name} ${endpoint}."; return 1; }
 
-    config_id=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$config" 2>/dev/null) || true
+    config_id=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['id'])" <<< "$config" 2>/dev/null) || true
     [[ -z "$config_id" ]] && { log_warn "  Could not parse ${name} ${endpoint} ID."; return 1; }
 
     updated=$(python3 -c "
 import json, sys
-c = json.loads(sys.argv[1])
+c = json.loads(sys.stdin.read())
 ${python_updates}
 print(json.dumps(c))
-" "$config" 2>/dev/null) || true
+" <<< "$config" 2>/dev/null) || true
     [[ -z "$updated" ]] && { log_warn "  Could not update ${name} ${endpoint}."; return 1; }
 
     curl -sf --connect-timeout 5 --max-time 15 -X PUT -H "Content-Type: application/json" -H "X-Api-Key: ${api_key}" \
@@ -1860,6 +1891,9 @@ print_post_install() {
     echo "     This allows API auto-configuration to work on first launch."
     echo "     Set up credentials in each service's Settings → General → Authentication."
     echo ""
+    echo -e "  ${RED}⚠  SECURITY: You MUST enable authentication on all services before exposing${NC}"
+    echo -e "  ${RED}     them to your LAN. Any local user can currently access them without credentials.${NC}"
+    echo ""
     echo -e "  ${GREEN}✓  Auto-start on boot is enabled.${NC}"
     echo "     A systemd service (torbox-media-server) handles mount propagation"
     echo "     and starts all containers automatically when your computer boots."
@@ -1941,6 +1975,15 @@ check_existing_installation() {
         EXISTING_PROWLARR_API_KEY=$(grep '^PROWLARR_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
         EXISTING_TORBOX_API_KEY=$(grep '^TORBOX_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
 
+        # Validate extracted API keys are valid 32-char hex; regenerate if corrupted
+        for _keyvar in EXISTING_RADARR_API_KEY EXISTING_SONARR_API_KEY EXISTING_PROWLARR_API_KEY; do
+            local _keyval="${!_keyvar:-}"
+            if [[ -n "$_keyval" && ! "$_keyval" =~ ^[0-9a-f]{32}$ ]]; then
+                log_warn "Corrupted API key detected for ${_keyvar}. Will regenerate."
+                eval "${_keyvar}=''"
+            fi
+        done
+
         if [[ -n "$EXISTING_RADARR_API_KEY" ]]; then
             log_info "Existing API keys loaded and will be preserved."
         fi
@@ -1954,9 +1997,7 @@ start_services() {
     read -rp "Start all services now? [Y/n]: " start_now
     if [[ "${start_now,,}" != "n" ]]; then
         log_step "Starting Docker containers (first run downloads ~5-8 GB of images, this may take several minutes)..."
-        cd "${INSTALL_DIR}"
-
-        if ! compose_cmd up -d --remove-orphans; then
+        if ! (cd "${INSTALL_DIR}" && compose_cmd up -d --remove-orphans); then
             log_error "Failed to start services. Check your internet connection and disk space."
             log_error "Try running: cd ${INSTALL_DIR} && docker compose --env-file .env -f docker-compose.yml up -d"
             return 1
