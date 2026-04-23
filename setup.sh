@@ -2083,16 +2083,14 @@ configure_arr_auth() {
             Radarr)   env_key="RADARR_ADMIN_USER" ;;
             Sonarr)   env_key="SONARR_ADMIN_USER" ;;
             Prowlarr) env_key="PROWLARR_ADMIN_USER" ;;
-
         esac
 
-            # Remove old entries and append new ones
-            grep -v "^${env_key}_USER=\|^${env_key}_PASS=" "${ENV_FILE}" > "${ENV_FILE}.tmp" 2>/dev/null || true
-            echo "${env_key}_USER=\"${admin_user}\"" >> "${ENV_FILE}.tmp"
-            echo "${env_key}_PASS=\"${admin_pass}\"" >> "${ENV_FILE}.tmp"
-            mv "${ENV_FILE}.tmp" "${ENV_FILE}"
-            chmod 600 "${ENV_FILE}"
-        }
+        # Remove old entries and append new ones
+        grep -v "^${env_key}_USER=\|^${env_key}_PASS=" "${ENV_FILE}" > "${ENV_FILE}.tmp" 2>/dev/null || true
+        echo "${env_key}_USER=\"${admin_user}\"" >> "${ENV_FILE}.tmp"
+        echo "${env_key}_PASS=\"${admin_pass}\"" >> "${ENV_FILE}.tmp"
+        mv "${ENV_FILE}.tmp" "${ENV_FILE}"
+        chmod 600 "${ENV_FILE}"
     } || log_warn "  Failed to configure ${name} auth."
 }
 
