@@ -1210,7 +1210,6 @@ case "${1:-help}" in
         echo -e "  ${BOLD}Radarr${NC}    $(env_val RADARR_API_KEY)"
         echo -e "  ${BOLD}Sonarr${NC}    $(env_val SONARR_API_KEY)"
         echo -e "  ${BOLD}Prowlarr${NC}  $(env_val PROWLARR_API_KEY)"
-        local _radarr_pass _sonarr_pass _prowlarr_pass
         _radarr_pass="$(env_val RADARR_ADMIN_PASS)"
         _sonarr_pass="$(env_val SONARR_ADMIN_PASS)"
         _prowlarr_pass="$(env_val PROWLARR_ADMIN_PASS)"
