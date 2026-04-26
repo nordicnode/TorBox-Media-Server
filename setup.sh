@@ -883,6 +883,8 @@ PROWLARR_XML_EOF
 generate_env_file() {
     log_step "Generating environment file..."
 
+    local decypharr_image="${EXISTING_DECYPHARR_IMAGE:-${DECYPHARR_IMAGE:-ghcr.io/sirrobot01/decypharr:v2.2}}"
+
     # Set the compose profile based on media server choice
     local compose_profile="plex"
     if [[ "${MEDIA_SERVER}" == "jellyfin" ]]; then
@@ -922,6 +924,7 @@ PROWLARR_API_KEY="${PROWLARR_API_KEY}"
 # Decypharr credentials (pre-seeded)
 DECYPHARR_USER="${DECYPHARR_USER:-torbox}"
 DECYPHARR_PASS="${DECYPHARR_PASS:-}"
+DECYPHARR_IMAGE="${decypharr_image}"
 ENV_EOF
 
     # Preserve existing admin credentials if this is a re-run
@@ -2385,6 +2388,7 @@ EXISTING_SONARR_ADMIN_USER=""
 EXISTING_SONARR_ADMIN_PASS=""
 EXISTING_PROWLARR_ADMIN_USER=""
 EXISTING_PROWLARR_ADMIN_PASS=""
+EXISTING_DECYPHARR_IMAGE=""
 
 check_existing_installation() {
     if [[ -f "${SETUP_COMPLETE_FILE}" ]]; then
@@ -2421,6 +2425,7 @@ check_existing_installation() {
         EXISTING_PROWLARR_API_KEY=$(grep '^PROWLARR_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
         EXISTING_TORBOX_API_KEY=$(grep '^TORBOX_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
         EXISTING_COMPOSE_PROFILES=$(grep '^COMPOSE_PROFILES=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
+        EXISTING_DECYPHARR_IMAGE=$(grep '^DECYPHARR_IMAGE=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
 
         # Extract existing admin credentials
         EXISTING_RADARR_ADMIN_USER=$(grep '^RADARR_ADMIN_USER=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true

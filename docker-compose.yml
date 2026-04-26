@@ -13,7 +13,7 @@ services:
   # Mocks qBittorrent API for Radarr/Sonarr, connects to TorBox,
   # handles WebDAV mounting via built-in rclone, and creates symlinks.
   decypharr:
-    image: ghcr.io/sirrobot01/decypharr:v2.0
+    image: "${DECYPHARR_IMAGE:-ghcr.io/sirrobot01/decypharr:v2.2}"
     container_name: decypharr
     restart: unless-stopped
     networks:
