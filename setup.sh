@@ -1974,8 +1974,14 @@ configure_plex_libraries() {
 
     # Remove expired claim token from .env (token expires in 4 min and is single-use)
     if [[ -f "${ENV_FILE}" ]]; then
-        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "${ENV_FILE}" || true
-        log_info "  Plex claim token removed from .env (expired after first use)."
+        local env_tmp
+        env_tmp="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
+        if grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${env_tmp}"; then
+            mv "${env_tmp}" "${ENV_FILE}"
+            log_info "  Plex claim token removed from .env (expired after first use)."
+        else
+            rm -f "${env_tmp}"
+        fi
     fi
 }
 
@@ -2077,20 +2083,25 @@ configure_arr_auth() {
         -H "X-Api-Key: ${api_key}" \
         "${url}/api/v3/config/host/${auth_id}" \
         -d "$updated_auth" -o /dev/null 2>/dev/null && {
-        log_info "  ${name} auth set to Forms (Enabled) with auto-generated credentials."
-        local env_key
-        case "$name" in
-            Radarr)   env_key="RADARR_ADMIN_USER" ;;
-            Sonarr)   env_key="SONARR_ADMIN_USER" ;;
-            Prowlarr) env_key="PROWLARR_ADMIN_USER" ;;
-
-        esac
+            log_info "  ${name} auth set to Forms (Enabled) with auto-generated credentials."
+            local env_key
+            case "$name" in
+                Radarr)   env_key="RADARR_ADMIN_USER" ;;
+                Sonarr)   env_key="SONARR_ADMIN_USER" ;;
+                Prowlarr) env_key="PROWLARR_ADMIN_USER" ;;
+                *)        { log_warn "  Unsupported service name: ${name}"; return 1; } ;;
+            esac
 
             # Remove old entries and append new ones
-            grep -v "^${env_key}_USER=\|^${env_key}_PASS=" "${ENV_FILE}" > "${ENV_FILE}.tmp" 2>/dev/null || true
-            echo "${env_key}_USER=\"${admin_user}\"" >> "${ENV_FILE}.tmp"
-            echo "${env_key}_PASS=\"${admin_pass}\"" >> "${ENV_FILE}.tmp"
-            mv "${ENV_FILE}.tmp" "${ENV_FILE}"
+            local env_tmp
+            env_tmp="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
+            if grep -v "^${env_key}_USER=\\|^${env_key}_PASS=" "${ENV_FILE}" > "${env_tmp}" 2>/dev/null; then
+                echo "${env_key}_USER=\"${admin_user}\"" >> "${env_tmp}"
+                echo "${env_key}_PASS=\"${admin_pass}\"" >> "${env_tmp}"
+                mv "${env_tmp}" "${ENV_FILE}"
+            else
+                rm -f "${env_tmp}"
+            fi
             chmod 600 "${ENV_FILE}"
         }
     } || log_warn "  Failed to configure ${name} auth."
