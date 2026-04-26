@@ -2145,14 +2145,14 @@ print_post_install() {
     echo -e "  ${YELLOW}View full keys with:${NC} cd ${INSTALL_DIR} && ./manage.sh keys"
     echo ""
 
-    if [[ "$SERVICES_STARTED" == "true" && -n "${RADARR_ADMIN_PASS:-}" ]]; then
+    if [[ "$SERVICES_STARTED" == "true" && ( -n "${RADARR_ADMIN_PASS:-}" || -n "${SONARR_ADMIN_PASS:-}" || -n "${PROWLARR_ADMIN_PASS:-}" ) ]]; then
         echo -e "${BOLD}━━━━ Auto-Generated Admin Credentials ━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         echo -e "  ${YELLOW}Save these credentials — you will need them to log in.${NC}"
         echo ""
-        echo -e "  ${BOLD}Radarr${NC}    Username: ${RADARR_ADMIN_USER}  Password: ${RADARR_ADMIN_PASS}"
-        echo -e "  ${BOLD}Sonarr${NC}    Username: ${SONARR_ADMIN_USER}  Password: ${SONARR_ADMIN_PASS}"
-        echo -e "  ${BOLD}Prowlarr${NC}  Username: ${PROWLARR_ADMIN_USER}  Password: ${PROWLARR_ADMIN_PASS}"
+        echo -e "  ${BOLD}Radarr${NC}    Username: ${RADARR_ADMIN_USER:-<not set>}  Password: ${RADARR_ADMIN_PASS:-<not set>}"
+        echo -e "  ${BOLD}Sonarr${NC}    Username: ${SONARR_ADMIN_USER:-<not set>}  Password: ${SONARR_ADMIN_PASS:-<not set>}"
+        echo -e "  ${BOLD}Prowlarr${NC}  Username: ${PROWLARR_ADMIN_USER:-<not set>}  Password: ${PROWLARR_ADMIN_PASS:-<not set>}"
         echo ""
     fi
 
