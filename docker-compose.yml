@@ -32,12 +32,6 @@ services:
       - /dev/fuse:/dev/fuse:rwm
     cap_add:
       - SYS_ADMIN
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8282"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
     logging:
       driver: json-file
       options:
@@ -126,7 +120,7 @@ services:
         max-file: "3"
     depends_on:
       decypharr:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:7878/ping"]
       interval: 30s
@@ -160,7 +154,7 @@ services:
         max-file: "3"
     depends_on:
       decypharr:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8989/ping"]
       interval: 30s
