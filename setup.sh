@@ -2094,8 +2094,7 @@ configure_arr_auth() {
             echo "${env_key}_PASS=\"${admin_pass}\"" >> "${ENV_FILE}.tmp"
             mv "${ENV_FILE}.tmp" "${ENV_FILE}"
             chmod 600 "${ENV_FILE}"
-        }
-    } || log_warn "  Failed to configure ${name} auth."
+        } || log_warn "  Failed to configure ${name} auth."
 }
 
 # ============================================================================
