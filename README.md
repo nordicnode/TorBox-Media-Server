@@ -90,7 +90,7 @@ User Request                Search & Automation           Cloud Download
 | **Plex** | 32400 | Media server option 1. Streams your library to any device. Requires a free Plex account. |
 | **Jellyfin** | 8096 | Media server option 2 (open-source, no account needed). Streams your library to any device. |
 
-> **Note:** All service ports except Plex and Jellyfin are bound to `127.0.0.1` (localhost only) by default for security. Plex and Jellyfin bind to all interfaces so other devices on your LAN can stream. See [Accessing From Other Devices](#accessing-from-other-devices) to open access for other services.
+> **Note:** All service ports including Plex and Jellyfin are bound to `127.0.0.1` (localhost only) by default for security. To stream from other devices on your LAN, you will need to expose the Plex/Jellyfin ports. See [Accessing From Other Devices](#accessing-from-other-devices).
 
 ## Before You Begin
 
@@ -288,12 +288,8 @@ Decypharr is the critical bridge between your media managers and TorBox. **Nothi
 Prowlarr manages your torrent indexers (the sites where torrents are found). The script already connected Byparr, Radarr, and Sonarr — and pre-added **1337x** as a default indexer.
 
 1. Open **http://localhost:9696**
-2. **Create login credentials** (important!):
-   - Go to **Settings → General**
-   - Authentication is already set to **Forms (Login Page)** — just enter a **username** and **password**
-   - Click **Save Changes** at the top
-
-   > ⚠️ Authentication is disabled for local addresses by default to allow the setup script's API calls to work. You should set up credentials now for security.
+2. Log in using the **auto-generated admin credentials** displayed at the end of the setup script.
+   > 💡 You can retrieve these credentials at any time by running `./manage.sh keys --show-secrets`
 
 3. **1337x is already configured** as a default indexer. To add more, go to **Indexers → Add Indexer** (the `+` button)
 4. Search for and add additional indexers you want. Some popular public options:
@@ -315,13 +311,10 @@ Prowlarr manages your torrent indexers (the sites where torrents are found). The
 
 ### Step 3: Verify Radarr (~2 minutes)
 
-Radarr manages your movie library. The script already configured everything — you just need to create login credentials and verify.
+Radarr manages your movie library. The script already configured everything.
 
 1. Open **http://localhost:7878**
-2. **Create login credentials:**
-   - Go to **Settings → General**
-   - Authentication is already set to **Forms (Login Page)** — just enter a **username** and **password**
-   - Click **Save Changes**
+2. Log in using the **auto-generated admin credentials**.
 3. Verify the auto-configuration worked:
    - **Settings → Download Clients** → you should see **Decypharr** listed
    - **Settings → Media Management** → Root Folders should show `/data/media/movies`
@@ -341,10 +334,7 @@ Radarr manages your movie library. The script already configured everything — 
 Sonarr manages your TV show library. Same auto-configuration as Radarr.
 
 1. Open **http://localhost:8989**
-2. **Create login credentials:**
-   - Go to **Settings → General**
-   - Authentication is already set to **Forms (Login Page)** — just enter a **username** and **password**
-   - Click **Save Changes**
+2. Log in using the **auto-generated admin credentials**.
 3. Verify the auto-configuration worked:
    - **Settings → Download Clients** → you should see **Decypharr** listed
    - **Settings → Media Management** → Root Folders should show `/data/media/tv`
@@ -519,9 +509,9 @@ For remote access outside your home network, use a reverse proxy like [Caddy](ht
 
 ## Security Notes
 
-- **Ports are bound to `127.0.0.1`** by default, preventing LAN/WAN exposure of admin UIs
-- **Authentication is set to `Forms` with `DisabledForLocalAddresses`** after setup — **you must create login credentials** in each service's Settings → General before exposing them to your LAN (see Steps 2–4 in the walkthrough above)
-- **The `.env` file** contains your TorBox API key and *arr API keys — it's `chmod 600` (owner-read only). Don't commit it to version control
+- **Ports are bound to `127.0.0.1`** by default, preventing LAN/WAN exposure of admin UIs, including Plex and Jellyfin
+- **Authentication is set to `Forms` with `Enabled`** automatically during setup. Secure admin credentials are auto-generated for Radarr, Sonarr, and Prowlarr, ensuring they are protected by default if you choose to expose them to your LAN.
+- **The `.env` file** contains your TorBox API key, admin credentials, and *arr API keys — it's `chmod 600` (owner-read only). Don't commit it to version control
 - **Only Decypharr** gets `SYS_ADMIN` capability and FUSE access — other containers only read files via symlinks
 - **Decypharr config is mounted read-only** — the config directory is bound as `:ro` to prevent containers from modifying their own configuration
 
@@ -641,20 +631,19 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Seerr** instead of Overseerr — Overseerr was archived in 2024; Seerr is the merged successor supporting Plex, Jellyfin, and Emby
 - **Byparr** instead of FlareSolverr — FlareSolverr is currently non-functional (Cloudflare detects it); Byparr is a drop-in replacement using the same API
 - **Only Decypharr gets FUSE/SYS_ADMIN** — Plex/Jellyfin/Radarr/Sonarr only read files, they don't need elevated privileges
-- **Plex on bridge networking** — Plex runs on the same Docker bridge network as all other services, allowing Seerr to connect via container name (`http://plex:32400`). Port 32400 is exposed on all interfaces for LAN streaming. Host networking was avoided because many Linux firewalls (UFW, firewalld) block traffic from Docker bridge containers to the host, causing Seerr <-> Plex connectivity failures
+- **Plex on bridge networking** — Plex runs on the same Docker bridge network as all other services, allowing Seerr to connect via container name (`http://plex:32400`). Host networking was avoided because many Linux firewalls (UFW, firewalld) block traffic from Docker bridge containers to the host, causing Seerr <-> Plex connectivity failures
 - **Plex notifications on Radarr/Sonarr** — triggers an instant Plex library scan when content is imported, upgraded, or deleted, so new media appears in seconds instead of waiting for Plex's periodic scan interval
-- **Ports bound to localhost** — prevents accidental LAN/WAN exposure of admin UIs
+- **Ports bound to localhost** — prevents accidental LAN/WAN exposure of admin UIs, including Plex and Jellyfin
 - **Mount propagation** — uses `rshared` on Decypharr (the mount source) and `rslave` on media servers (consumers); a systemd service (`torbox-media-server`) handles this automatically on boot, and `manage.sh` re-applies it as a safety net
 - **Hardlinks disabled** — debrid setups use symlinks from Decypharr's WebDAV mount, not local files; hardlinks would fail
 - **Systemd auto-start** — a `torbox-media-server.service` unit handles mount propagation and container startup on boot, so users never have to manually start services after a reboot
-- **`DisabledForLocalAddresses` auth** — allows the setup script's API calls to configure services on first launch without requiring credentials; users should enable full auth afterward
+- **Auto-configured Auth** — the setup script uses `DisabledForLocalAddresses` initially to configure services via API, then securely locks them down to `Forms` (`Enabled`) with auto-generated credentials before finishing.
 - **Pre-seeded API keys** — generated during setup and injected into config.xml before containers start, enabling fully automated API-based configuration
 - **jq for JSON manipulation** — used to modify *arr config via API; auto-installed as a dependency
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
 - **Docker images pinned to specific versions** — avoids breakage from upstream changes; re-run `setup.sh` to pick up newer versions intentionally
 - **Decypharr config mounted read-only** — config.json is bind-mounted as `:ro` to prevent containers from accidentally modifying it
 - **Decypharr credentials pre-seeded** — generated during setup and injected into config.json, eliminating manual credential creation
-- **Plex and Jellyfin on all interfaces** — both media servers expose their ports on all interfaces for LAN streaming consistency; other services remain localhost-only for security
 
 ## Updating
 

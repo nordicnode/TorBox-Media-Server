@@ -39,11 +39,14 @@ env_val() {
 
 # Detect the correct docker compose command
 COMPOSE_CMD=()
+DOCKER_CMD=()
 detect_compose_cmd() {
     if docker info &>/dev/null; then
         COMPOSE_CMD=(docker compose)
+        DOCKER_CMD=(docker)
     else
         COMPOSE_CMD=(sudo docker compose)
+        DOCKER_CMD=(sudo docker)
     fi
 }
 
@@ -89,23 +92,27 @@ echo ""
 
 # Step 1: Stop and remove containers
 log_info "Stopping and removing Docker containers..."
+if [[ ${#DOCKER_CMD[@]} -eq 0 ]]; then
+    detect_compose_cmd
+fi
+
 if [[ -f "${ENV_FILE}" && -f "${COMPOSE_FILE}" ]]; then
     compose_cmd down --remove-orphans 2>/dev/null || {
         log_warn "Docker compose down failed. Attempting manual cleanup..."
         for svc in decypharr prowlarr byparr radarr sonarr seerr plex jellyfin; do
-            docker rm -f "$svc" 2>/dev/null || true
+            "${DOCKER_CMD[@]}" rm -f "$svc" 2>/dev/null || true
         done
     }
 else
     log_warn "Missing .env or docker-compose.yml. Skipping compose down."
     for svc in decypharr prowlarr byparr radarr sonarr seerr plex jellyfin; do
-        docker rm -f "$svc" 2>/dev/null || true
+        "${DOCKER_CMD[@]}" rm -f "$svc" 2>/dev/null || true
     done
 fi
 
 # Remove the Docker network (dynamically computed from project directory name)
 project_name="$(basename "${INSTALL_DIR}")"
-docker network rm "${project_name}_media-network" 2>/dev/null || true
+"${DOCKER_CMD[@]}" network rm "${project_name}_media-network" 2>/dev/null || true
 
 # Step 2: Remove systemd service
 log_info "Removing systemd service..."
@@ -160,10 +167,13 @@ else
 fi
 if [[ "${remove_images,,}" == "y" ]]; then
     log_info "Removing Docker images..."
+    if [[ ${#DOCKER_CMD[@]} -eq 0 ]]; then
+        detect_compose_cmd
+    fi
     local_removed=0
     if [[ ${#_images[@]} -gt 0 ]]; then
         for img in "${_images[@]}"; do
-            if docker rmi "$img" 2>/dev/null; then
+            if "${DOCKER_CMD[@]}" rmi "$img" 2>/dev/null; then
                 log_info "  Removed: $img"
                 local_removed=$((local_removed + 1))
             fi

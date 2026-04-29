@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install ShellCheck
-        run: sudo apt-get install -y shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Lint setup.sh
         run: shellcheck setup.sh
@@ -44,10 +44,28 @@ jobs:
           # so bash -n checks the actual script content, not the heredoc container.
           sed -n '/^cat > "${INSTALL_DIR}\/manage.sh" << .MANAGE_EOF.$/,/^MANAGE_EOF$/p' setup.sh | sed '1d;$d' > /tmp/manage_extracted.sh
           sed -n '/^cat >> "${INSTALL_DIR}\/manage.sh" << .MANAGE_INLINE.$/,/^MANAGE_INLINE$/p' setup.sh | sed '1d;$d' >> /tmp/manage_extracted.sh
-          bash -n /tmp/manage_extracted.sh && echo "manage.sh syntax OK" || echo "manage.sh has syntax errors"
+          bash -n /tmp/manage_extracted.sh && echo "manage.sh syntax OK" || { echo "manage.sh has syntax errors"; exit 1; }
 
       - name: Validate uninstall.sh syntax
         run: bash -n uninstall.sh && echo "uninstall.sh syntax OK"
 
       - name: Validate setup.sh syntax
         run: bash -n setup.sh && echo "setup.sh syntax OK"
+
+      - name: Validate docker-compose.yml
+        run: |
+          # Validate compose template with representative environment variables
+          export PUID=1000
+          export PGID=1000
+          export TZ=UTC
+          export CONFIG_DIR=/tmp/config
+          export DATA_DIR=/tmp/data
+          export MOUNT_DIR=/tmp/mount
+          export TORBOX_API_KEY=testkey1234567890123456789012345
+          export RADARR_API_KEY=radarrkey12345678901234567890123
+          export SONARR_API_KEY=sonarrkey12345678901234567890123
+          export PROWLARR_API_KEY=prowlarrkey1234567890123456789012
+          export DECYPHARR_USER=torbox
+          export DECYPHARR_PASS=password
+          export PLEX_CLAIM=claim-xxxxx
+          docker compose config -q

@@ -210,7 +210,7 @@ services:
     networks:
       - media-network
     ports:
-      - "32400:32400"
+      - "127.0.0.1:32400:32400"
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -244,8 +244,8 @@ services:
     networks:
       - media-network
     ports:
-      - "8096:8096"
-      - "8920:8920"
+      - "127.0.0.1:8096:8096"
+      - "127.0.0.1:8920:8920"
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
