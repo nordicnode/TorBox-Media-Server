@@ -13,6 +13,7 @@ set -euo pipefail
 
 VERSION="1.0.0"
 DRY_RUN=false
+SERVICES_STARTED=false
 
 trap 'cleanup_on_interrupt' INT TERM
 
@@ -477,6 +478,12 @@ gather_config() {
         done
     fi
 
+    # Validate media server choice
+    if [[ "$MEDIA_SERVER" != "plex" && "$MEDIA_SERVER" != "jellyfin" ]]; then
+        log_warn "Invalid media server '${MEDIA_SERVER}'. Defaulting to plex."
+        MEDIA_SERVER="plex"
+    fi
+
     PLEX_CLAIM="${TORBOX_PLEX_CLAIM:-}"
     if [[ "$MEDIA_SERVER" == "plex" && -z "$PLEX_CLAIM" && "$NON_INTERACTIVE" != "true" ]]; then
         echo ""
@@ -746,10 +753,12 @@ generate_decypharr_config() {
     fi
 
     # Generate credentials for Decypharr web UI
-    DECYPHARR_USER="torbox"
-    DECYPHARR_PASS="$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 12)"
-    if [[ -z "$DECYPHARR_PASS" ]]; then
-        DECYPHARR_PASS="$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
+    DECYPHARR_USER="${DECYPHARR_USER:-torbox}"
+    if [[ -z "${DECYPHARR_PASS:-}" ]]; then
+        DECYPHARR_PASS="$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 12)"
+        if [[ -z "$DECYPHARR_PASS" ]]; then
+            DECYPHARR_PASS="$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
+        fi
     fi
 
     cat > "${CONFIG_DIR}/decypharr/config.json" << DECYPHARR_EOF
@@ -1187,22 +1196,44 @@ case "${1:-help}" in
         show_urls
         ;;
     keys)
+        local show_secrets=false
+        if [[ "\$2" == "--show-secrets" ]]; then
+            show_secrets=true
+        fi
+
+        mask_val() {
+            local val="\$1"
+            if [[ "\$show_secrets" == "true" ]]; then
+                echo "\$val"
+            elif [[ \${#val} -gt 8 ]]; then
+                echo "\${val:0:4}...<hidden>...\${val: -4}"
+            else
+                echo "***<hidden>***"
+            fi
+        }
+
         echo -e "\n${CYAN}━━━━ API Keys ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-        echo -e "  ${YELLOW}WARNING: Sensitive credentials below. Do not share this output.${NC}\n"
-        echo -e "  ${BOLD}TorBox${NC}    $(env_val TORBOX_API_KEY)"
-        echo -e "  ${BOLD}Radarr${NC}    $(env_val RADARR_API_KEY)"
-        echo -e "  ${BOLD}Sonarr${NC}    $(env_val SONARR_API_KEY)"
-        echo -e "  ${BOLD}Prowlarr${NC}  $(env_val PROWLARR_API_KEY)"
+        if [[ "\$show_secrets" == "true" ]]; then
+            echo -e "  ${YELLOW}WARNING: Sensitive credentials below. Do not share this output.${NC}\n"
+        else
+            echo -e "  ${YELLOW}Secrets masked. Use './manage.sh keys --show-secrets' to reveal.${NC}\n"
+        fi
+
+        echo -e "  ${BOLD}TorBox${NC}    \$(mask_val \"\$(env_val TORBOX_API_KEY)\")"
+        echo -e "  ${BOLD}Radarr${NC}    \$(mask_val \"\$(env_val RADARR_API_KEY)\")"
+        echo -e "  ${BOLD}Sonarr${NC}    \$(mask_val \"\$(env_val SONARR_API_KEY)\")"
+        echo -e "  ${BOLD}Prowlarr${NC}  \$(mask_val \"\$(env_val PROWLARR_API_KEY)\")"
+
         local _radarr_pass _sonarr_pass _prowlarr_pass
-        _radarr_pass="$(env_val RADARR_ADMIN_PASS)"
-        _sonarr_pass="$(env_val SONARR_ADMIN_PASS)"
-        _prowlarr_pass="$(env_val PROWLARR_ADMIN_PASS)"
-        if [[ -n "$_radarr_pass" ]]; then
+        _radarr_pass="\$(env_val RADARR_ADMIN_PASS)"
+        _sonarr_pass="\$(env_val SONARR_ADMIN_PASS)"
+        _prowlarr_pass="\$(env_val PROWLARR_ADMIN_PASS)"
+        if [[ -n "\$_radarr_pass" ]]; then
             echo ""
             echo -e "  ${BOLD}Admin Credentials:${NC}"
-            echo -e "  ${BOLD}Radarr${NC}    user: $(env_val RADARR_ADMIN_USER)  pass: ${_radarr_pass}"
-            echo -e "  ${BOLD}Sonarr${NC}    user: $(env_val SONARR_ADMIN_USER)  pass: ${_sonarr_pass}"
-            echo -e "  ${BOLD}Prowlarr${NC}  user: $(env_val PROWLARR_ADMIN_USER)  pass: ${_prowlarr_pass}"
+            echo -e "  ${BOLD}Radarr${NC}    user: \$(env_val RADARR_ADMIN_USER)  pass: \$(mask_val \"\${_radarr_pass}\")"
+            echo -e "  ${BOLD}Sonarr${NC}    user: \$(env_val SONARR_ADMIN_USER)  pass: \$(mask_val \"\${_sonarr_pass}\")"
+            echo -e "  ${BOLD}Prowlarr${NC}  user: \$(env_val PROWLARR_ADMIN_USER)  pass: \$(mask_val \"\${_prowlarr_pass}\")"
         fi
         echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
         ;;
@@ -2038,9 +2069,13 @@ configure_arr_auth() {
     auth_config=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${api_key}" "${url}/api/v3/config/host" 2>/dev/null) || true
     [[ -z "$auth_config" ]] && { log_warn "  Could not retrieve ${name} auth config."; return 1; }
 
-    # Check if auth is already set to Forms
-    if echo "$auth_config" | grep -q '"authenticationMethod":"Forms"' 2>/dev/null || \
-       echo "$auth_config" | grep -q '"authenticationMethod": "Forms"' 2>/dev/null; then
+    # Check if auth is already set to Forms and Required
+    if (echo "$auth_config" | grep -q '"authenticationMethod":"Forms"' 2>/dev/null || \
+        echo "$auth_config" | grep -q '"authenticationMethod": "Forms"' 2>/dev/null) && \
+       (echo "$auth_config" | grep -q '"authenticationRequired":"Enabled"' 2>/dev/null || \
+        echo "$auth_config" | grep -q '"authenticationRequired": "Enabled"' 2>/dev/null) && \
+       (echo "$auth_config" | grep -q '"username":' 2>/dev/null && \
+        ! echo "$auth_config" | grep -q '"username": ""' 2>/dev/null); then
         log_info "  ${name} already has Forms authentication configured."
         return 0
     fi
@@ -2072,28 +2107,28 @@ configure_arr_auth() {
         '.authenticationMethod = "Forms" | .authenticationRequired = "Enabled" | .username = $user | .password = $pass' 2>/dev/null) || true
     [[ -z "$updated_auth" ]] && { log_warn "  Could not update ${name} auth config."; return 1; }
 
-    curl -sf --connect-timeout 5 --max-time 15 -X PUT \
+    if curl -sf --connect-timeout 5 --max-time 15 -X PUT \
         -H "Content-Type: application/json" \
         -H "X-Api-Key: ${api_key}" \
         "${url}/api/v3/config/host/${auth_id}" \
-        -d "$updated_auth" -o /dev/null 2>/dev/null && {
+        -d "$updated_auth" -o /dev/null 2>/dev/null; then
         log_info "  ${name} auth set to Forms (Enabled) with auto-generated credentials."
-        local env_key
+        local env_key_prefix
         case "$name" in
-            Radarr)   env_key="RADARR_ADMIN_USER" ;;
-            Sonarr)   env_key="SONARR_ADMIN_USER" ;;
-            Prowlarr) env_key="PROWLARR_ADMIN_USER" ;;
-
+            Radarr)   env_key_prefix="RADARR_ADMIN" ;;
+            Sonarr)   env_key_prefix="SONARR_ADMIN" ;;
+            Prowlarr) env_key_prefix="PROWLARR_ADMIN" ;;
         esac
 
-            # Remove old entries and append new ones
-            grep -v "^${env_key}_USER=\|^${env_key}_PASS=" "${ENV_FILE}" > "${ENV_FILE}.tmp" 2>/dev/null || true
-            echo "${env_key}_USER=\"${admin_user}\"" >> "${ENV_FILE}.tmp"
-            echo "${env_key}_PASS=\"${admin_pass}\"" >> "${ENV_FILE}.tmp"
-            mv "${ENV_FILE}.tmp" "${ENV_FILE}"
-            chmod 600 "${ENV_FILE}"
-        }
-    } || log_warn "  Failed to configure ${name} auth."
+        # Remove old entries and append new ones
+        grep -v "^${env_key_prefix}_USER=\|^${env_key_prefix}_PASS=" "${ENV_FILE}" > "${ENV_FILE}.tmp" 2>/dev/null || true
+        echo "${env_key_prefix}_USER=\"${admin_user}\"" >> "${ENV_FILE}.tmp"
+        echo "${env_key_prefix}_PASS=\"${admin_pass}\"" >> "${ENV_FILE}.tmp"
+        mv "${ENV_FILE}.tmp" "${ENV_FILE}"
+        chmod 600 "${ENV_FILE}"
+    else
+        log_warn "  Failed to configure ${name} auth."
+    fi
 }
 
 # ============================================================================
@@ -2420,6 +2455,10 @@ check_existing_installation() {
         EXISTING_PROWLARR_ADMIN_USER=$(grep '^PROWLARR_ADMIN_USER=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
         EXISTING_PROWLARR_ADMIN_PASS=$(grep '^PROWLARR_ADMIN_PASS=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
 
+        # Extract existing Decypharr credentials
+        DECYPHARR_USER=$(grep "^DECYPHARR_USER=" "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d "\"" | tr -d "'") || true
+        DECYPHARR_PASS=$(grep "^DECYPHARR_PASS=" "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d "\"" | tr -d "'") || true
+
         # Validate extracted API keys are valid 32-char hex; regenerate if corrupted
         if [[ -n "$EXISTING_RADARR_API_KEY" && ! "$EXISTING_RADARR_API_KEY" =~ ^[0-9a-f]{32}$ ]]; then
             log_warn "Corrupted API key detected for Radarr. Will regenerate."
@@ -2474,6 +2513,7 @@ start_services() {
         log_info "You can start services later with:"
         echo "  cd ${INSTALL_DIR} && ./manage.sh start"
         log_info "Once started, re-run this script or configure services manually."
+        SERVICES_STARTED=false
     fi
 }
 
