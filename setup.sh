@@ -18,7 +18,7 @@ trap 'cleanup_on_interrupt' INT TERM
 
 cleanup_on_interrupt() {
     echo ""
-    # If setup never completed (.env not written), remove partial installation
+    # If setup never completed (.env not written), preserve partial installation
     if [[ ! -f "${ENV_FILE:-}" && -d "${INSTALL_DIR:-}" ]]; then
         log_warn "Setup interrupted before completion. Partial installation at: ${INSTALL_DIR:-}"
         log_warn "You can manually remove it with: rm -rf ${INSTALL_DIR:-}"
@@ -1382,7 +1382,7 @@ ExecStopPost=-/bin/bash -c 'umount -l "\${MOUNT_DIR}" || true'
 Restart=on-failure
 RestartSec=10
 
-WorkingDirectory="\${INSTALL_DIR}"
+WorkingDirectory=${INSTALL_DIR}
 TimeoutStartSec=120
 TimeoutStopSec=60
 
@@ -2082,9 +2082,9 @@ configure_arr_auth() {
         log_info "  ${name} auth set to Forms (Enabled) with auto-generated credentials."
         local env_key
         case "$name" in
-            Radarr)   env_key="RADARR_ADMIN_USER" ;;
-            Sonarr)   env_key="SONARR_ADMIN_USER" ;;
-            Prowlarr) env_key="PROWLARR_ADMIN_USER" ;;
+            Radarr)   env_key="RADARR_ADMIN" ;;
+            Sonarr)   env_key="SONARR_ADMIN" ;;
+            Prowlarr) env_key="PROWLARR_ADMIN" ;;
 
         esac
 
