@@ -19,15 +19,14 @@ trap 'cleanup_on_interrupt' INT TERM
 cleanup_on_interrupt() {
     echo ""
     # If setup never completed (.env not written), remove partial installation
-    if [[ ! -f "${ENV_FILE}" && -d "${INSTALL_DIR}" ]]; then
-        log_warn "Setup interrupted before completion. Cleaning up partial installation..."
-        rm -rf "${INSTALL_DIR}"
-        log_info "Partial installation removed. Re-run setup.sh to start fresh."
-    elif [[ -f "${ENV_FILE}" && ! -f "${SETUP_COMPLETE_FILE}" ]]; then
+    if [[ ! -f "${ENV_FILE:-}" && -d "${INSTALL_DIR:-}" ]]; then
+        log_warn "Setup interrupted before completion. Partial installation at: ${INSTALL_DIR:-}"
+        log_warn "You can manually remove it with: rm -rf ${INSTALL_DIR:-}"
+        log_info "Re-run setup.sh to continue where you left off or start fresh."
+    elif [[ -f "${ENV_FILE:-}" && ! -f "${SETUP_COMPLETE_FILE:-}" ]]; then
         # .env exists but setup_complete doesn't — install was interrupted mid-config
-        log_warn "Setup interrupted during configuration. Cleaning up incomplete installation..."
-        rm -rf "${INSTALL_DIR}"
-        log_info "Incomplete installation removed. Re-run setup.sh to start fresh."
+        log_warn "Setup interrupted during configuration. Installation preserved at: ${INSTALL_DIR:-}"
+        log_warn "Re-run setup.sh to continue configuration."
     else
         log_warn "Setup interrupted. Re-run to continue where you left off."
     fi
@@ -228,7 +227,7 @@ check_dependencies() {
             sudo systemctl enable docker 2>/dev/null || true
             # Wait for Docker daemon to be ready (up to 15 seconds)
             local docker_wait=0
-            local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+            local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⬏'
             while [[ $docker_wait -lt 15 ]]; do
                 if sudo docker info &>/dev/null; then
                     printf "\r  %-50s\r" ""
@@ -240,7 +239,8 @@ check_dependencies() {
             done
             printf "\r  %-50s\r" ""
         fi
-        if ! sudo docker info &>/dev/null; then
+        # Final check: ensure Docker is accessible either directly or via sudo
+        if ! docker info &>/dev/null && ! sudo docker info &>/dev/null; then
             log_error "Failed to connect to Docker. Please start Docker manually and re-run."
             exit 1
         fi
@@ -442,9 +442,9 @@ gather_config() {
         done
     fi
     TORBOX_API_KEY="${TORBOX_API_KEY:-${EXISTING_TORBOX_API_KEY:-}}"
-    # Validate API key with allowlist — only safe characters permitted
-    if [[ ! "$TORBOX_API_KEY" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-        log_error "API key contains invalid characters. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    # Validate API key with allowlist — only safe characters permitted, must start with alphanumeric
+    if [[ ! "$TORBOX_API_KEY" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+        log_error "API key contains invalid characters or format. Must start with alphanumeric and only contain alphanumeric, dots, hyphens, and underscores."
         log_error "Please copy it directly from https://torbox.app/settings"
         exit 1
     fi
@@ -1052,7 +1052,7 @@ declare -A SVC_LABELS=(
 # Safely read a value from .env without executing shell code
 env_val() {
     local key="$1"
-    grep "^${key}=" "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'"
+    grep "^${key}=" "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\042\047'
 }
 
 COMPOSE_CMD=()
@@ -1193,7 +1193,6 @@ case "${1:-help}" in
         echo -e "  ${BOLD}Radarr${NC}    $(env_val RADARR_API_KEY)"
         echo -e "  ${BOLD}Sonarr${NC}    $(env_val SONARR_API_KEY)"
         echo -e "  ${BOLD}Prowlarr${NC}  $(env_val PROWLARR_API_KEY)"
-        local _radarr_pass _sonarr_pass _prowlarr_pass
         _radarr_pass="$(env_val RADARR_ADMIN_PASS)"
         _sonarr_pass="$(env_val SONARR_ADMIN_PASS)"
         _prowlarr_pass="$(env_val PROWLARR_ADMIN_PASS)"
@@ -1362,25 +1361,28 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment="MOUNT_DIR=${MOUNT_DIR}"
+Environment="INSTALL_DIR=${INSTALL_DIR}"
+Environment="ENV_FILE=${ENV_FILE}"
 
 # Step 1: Set up FUSE mount propagation (required for rclone WebDAV in Decypharr)
 # Guard with findmnt to prevent mount stacking on repeated restarts
-ExecStartPre=/bin/bash -c 'findmnt -n "${MOUNT_DIR}" >/dev/null 2>&1 || mount --bind "${MOUNT_DIR}" "${MOUNT_DIR}"'
-ExecStartPre=/bin/bash -c 'mount --make-shared "${MOUNT_DIR}"'
+ExecStartPre=/bin/bash -c 'findmnt -n "\${MOUNT_DIR}" >/dev/null 2>&1 || mount --bind "\${MOUNT_DIR}" "\${MOUNT_DIR}"'
+ExecStartPre=/bin/bash -c 'mount --make-shared "\${MOUNT_DIR}"'
 
 # Step 2: Start all containers (foreground so systemd tracks the process)
-ExecStart=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" up --remove-orphans
+ExecStart=${docker_bin} ${compose_args} --env-file "\${ENV_FILE}" up --remove-orphans
 
 # On stop: bring containers down gracefully
-ExecStop=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" stop
+ExecStop=${docker_bin} ${compose_args} --env-file "\${ENV_FILE}" stop
 
 # Clean up bind mount left by FUSE propagation
-ExecStopPost=-/bin/bash -c 'umount -l "${MOUNT_DIR}" || true'
+ExecStopPost=-/bin/bash -c 'umount -l "\${MOUNT_DIR}" || true'
 
 Restart=on-failure
 RestartSec=10
 
-WorkingDirectory="${INSTALL_DIR}"
+WorkingDirectory="\${INSTALL_DIR}"
 TimeoutStartSec=120
 TimeoutStopSec=60
 
