@@ -1422,7 +1422,7 @@ SYSTEMD_EOF
     # Reload systemd and enable the service
     sudo systemctl daemon-reload
     sudo systemctl enable "${service_name}.service" 2>/dev/null \
-        || log_warn "Could not enable systemd service. Auto-start on boot may not work (non-systemd system?)."
+       ; log_warn "Could not enable systemd service. Auto-start on boot may not work (non-systemd system?)."
 
     log_info "Systemd service '${service_name}' created and enabled."
     log_info "Services will auto-start with mount propagation on every boot."
@@ -1481,8 +1481,8 @@ DCJSON_EOF
 )
         curl -sf --connect-timeout 5 --max-time 15 -X POST -H "Content-Type: application/json" -H "X-Api-Key: ${api_key}" \
             "${url}/api/v3/downloadclient?forceSave=true" \
-            -d "$dc_json" -o /dev/null && log_info "  Download client 'Decypharr' added to ${name}." \
-            || log_warn "  Failed to add download client to ${name}."
+            -d "$dc_json" -o /dev/null; log_info "  Download client 'Decypharr' added to ${name}." \
+           ; log_warn "  Failed to add download client to ${name}."
     else
         log_info "  ${name} already has Decypharr download client configured."
     fi
@@ -1493,8 +1493,8 @@ DCJSON_EOF
     if ! echo "$existing_rf" | grep -qF "\"${root_path}\"" 2>/dev/null; then
         curl -sf --connect-timeout 5 --max-time 15 -X POST -H "Content-Type: application/json" -H "X-Api-Key: ${api_key}" \
             "${url}/api/v3/rootfolder" \
-            -d '{"path": "'"${root_path}"'"}' -o /dev/null && log_info "  Root folder '${root_path}' added to ${name}." \
-            || log_warn "  Failed to add root folder to ${name}."
+            -d '{"path": "'"${root_path}"'"}' -o /dev/null; log_info "  Root folder '${root_path}' added to ${name}." \
+           ; log_warn "  Failed to add root folder to ${name}."
     else
         log_info "  ${name} already has root folder '${root_path}' configured."
     fi
@@ -1503,16 +1503,16 @@ DCJSON_EOF
     if [[ "${HAS_JQ:-false}" == "true" ]]; then
         update_arr_config "${name}" "$url" "$api_key" "config/mediamanagement" \
             ".copyUsingHardlinks = false | .importExtraFiles = true | .extraFileExtensions = \"srt,sub,idx,ass,ssa,nfo\" | .${unmonitor_field} = false | .recycleBin = \"\" | .recycleBinCleanupDays = 0 | .minimumFreeSpaceWhenImporting = 100" \
-            && log_info "  Media management configured (hardlinks disabled for debrid)." \
-          || log_warn "  Failed to configure media management."
+           ; log_info "  Media management configured (hardlinks disabled for debrid)." \
+         ; log_warn "  Failed to configure media management."
 
         update_arr_config "${name}" "$url" "$api_key" "config/naming" "${naming_updates}" \
-            && log_info "  Naming conventions configured." \
-            || log_warn "  Failed to configure naming."
+           ; log_info "  Naming conventions configured." \
+           ; log_warn "  Failed to configure naming."
 
         configure_quality_profiles "${name}" "$url" "$api_key" \
-            && log_info "  Quality profiles updated (upgrades enabled)." \
-            || log_warn "  Failed to update quality profiles."
+           ; log_info "  Quality profiles updated (upgrades enabled)." \
+           ; log_warn "  Failed to update quality profiles."
     fi
 
     # Add Plex notification so library updates happen immediately on import
@@ -1551,8 +1551,8 @@ DCJSON_EOF
                             {"name": "authToken", "value": "'"$plex_token"'"},
                             {"name": "updateLibrary", "value": true}
                         ]
-                    }' -o /dev/null && log_info "  Plex notification added to ${name} (instant library updates)." \
-                    || log_warn "  Failed to add Plex notification to ${name}."
+                    }' -o /dev/null; log_info "  Plex notification added to ${name} (instant library updates)." \
+                   ; log_warn "  Failed to add Plex notification to ${name}."
             else
                 log_warn "  Plex token not found — skipping Plex notification for ${name}. You can add it manually in ${name} → Settings → Connect."
             fi
@@ -1691,8 +1691,8 @@ configure_arrs() {
                         {"name": "requestTimeout", "value": 60}
                     ],
                     "tags": []
-                }' -o /dev/null && log_info "  Byparr proxy added to Prowlarr." \
-                || log_warn "  Failed to add Byparr proxy to Prowlarr."
+                }' -o /dev/null; log_info "  Byparr proxy added to Prowlarr." \
+               ; log_warn "  Failed to add Byparr proxy to Prowlarr."
         else
             log_info "  Prowlarr already has Byparr proxy configured."
         fi
@@ -1716,8 +1716,8 @@ configure_arrs() {
                         {"name": "syncCategories", "value": [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060, 2070, 2080]}
                     ],
                     "tags": []
-                }' -o /dev/null && log_info "  Radarr app added to Prowlarr." \
-                || log_warn "  Failed to add Radarr app to Prowlarr."
+                }' -o /dev/null; log_info "  Radarr app added to Prowlarr." \
+               ; log_warn "  Failed to add Radarr app to Prowlarr."
         else
             log_info "  Prowlarr already has Radarr app configured."
         fi
@@ -1738,8 +1738,8 @@ configure_arrs() {
                         {"name": "syncCategories", "value": [5000, 5010, 5020, 5030, 5040, 5045, 5050, 5060, 5070, 5080]}
                     ],
                     "tags": []
-                }' -o /dev/null && log_info "  Sonarr app added to Prowlarr." \
-                || log_warn "  Failed to add Sonarr app to Prowlarr."
+                }' -o /dev/null; log_info "  Sonarr app added to Prowlarr." \
+               ; log_warn "  Failed to add Sonarr app to Prowlarr."
         else
             log_info "  Prowlarr already has Sonarr app configured."
         fi
@@ -1848,8 +1848,8 @@ configure_seerr() {
                 "tags": [],
                 "isDefault": true,
                 "externalUrl": ""
-            }' -o /dev/null 2>/dev/null && log_info "  Radarr added to Seerr (profile: ${radarr_profile_name})." \
-            || log_warn "  Failed to add Radarr to Seerr. You can configure it manually."
+            }' -o /dev/null 2>/dev/null; log_info "  Radarr added to Seerr (profile: ${radarr_profile_name})." \
+           ; log_warn "  Failed to add Radarr to Seerr. You can configure it manually."
     fi
 
     # Check if Sonarr is already configured
@@ -1887,8 +1887,8 @@ configure_seerr() {
                 "tags": [],
                 "isDefault": true,
                 "externalUrl": ""
-            }' -o /dev/null 2>/dev/null && log_info "  Sonarr added to Seerr (profile: ${sonarr_profile_name})." \
-            || log_warn "  Failed to add Sonarr to Seerr. You can configure it manually."
+            }' -o /dev/null 2>/dev/null; log_info "  Sonarr added to Seerr (profile: ${sonarr_profile_name})." \
+           ; log_warn "  Failed to add Sonarr to Seerr. You can configure it manually."
     fi
 
     # Configure Plex or Jellyfin connection in Seerr
@@ -1909,8 +1909,8 @@ configure_seerr() {
                     "useSsl": false,
                     "libraries": [],
                     "webAppUrl": "http://localhost:32400/web"
-                }' -o /dev/null 2>/dev/null && log_info "  Plex server added to Seerr." \
-                || log_warn "  Failed to add Plex to Seerr. You can configure it manually."
+                }' -o /dev/null 2>/dev/null; log_info "  Plex server added to Seerr." \
+               ; log_warn "  Failed to add Plex to Seerr. You can configure it manually."
         fi
     else
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
@@ -1923,8 +1923,8 @@ configure_seerr() {
                 "useSsl": false,
                 "externalUrl": "",
                 "libraries": []
-            }' -o /dev/null 2>/dev/null && log_info "  Jellyfin server added to Seerr." \
-            || log_warn "  Failed to add Jellyfin to Seerr. You can configure it manually."
+            }' -o /dev/null 2>/dev/null; log_info "  Jellyfin server added to Seerr." \
+           ; log_warn "  Failed to add Jellyfin to Seerr. You can configure it manually."
     fi
 }
 
@@ -1988,8 +1988,8 @@ configure_plex_libraries() {
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
             -H "X-Plex-Token: ${plex_token}" \
             "${plex_url}/library/sections?name=Movies&type=movie&agent=tv.plex.agents.movie&scanner=Plex%20Movie&language=en&location=%2Fdata%2Fmedia%2Fmovies" \
-            -o /dev/null 2>/dev/null && log_info "  Plex 'Movies' library added." \
-            || log_warn "  Failed to add Movies library. You can add it manually in Plex."
+            -o /dev/null 2>/dev/null; log_info "  Plex 'Movies' library added." \
+           ; log_warn "  Failed to add Movies library. You can add it manually in Plex."
     fi
 
     if echo "$existing_libs" | grep -q 'title="TV Shows"' 2>/dev/null; then
@@ -1999,13 +1999,13 @@ configure_plex_libraries() {
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
             -H "X-Plex-Token: ${plex_token}" \
             "${plex_url}/library/sections?name=TV%20Shows&type=show&agent=tv.plex.agents.series&scanner=Plex%20Series&language=en&location=%2Fdata%2Fmedia%2Ftv" \
-            -o /dev/null 2>/dev/null && log_info "  Plex 'TV Shows' library added." \
-            || log_warn "  Failed to add TV Shows library. You can add it manually in Plex."
+            -o /dev/null 2>/dev/null; log_info "  Plex 'TV Shows' library added." \
+           ; log_warn "  Failed to add TV Shows library. You can add it manually in Plex."
     fi
 
     # Remove expired claim token from .env (token expires in 4 min and is single-use)
     if [[ -f "${ENV_FILE}" ]]; then
-        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "${ENV_FILE}" || true
+        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${ENV_FILE}.tmp" ; mv "${ENV_FILE}.tmp" "${ENV_FILE}" || true
         log_info "  Plex claim token removed from .env (expired after first use)."
     fi
 }
@@ -2051,8 +2051,8 @@ add_default_indexer() {
                 {"id": 2000, "name": "Movies"},
                 {"id": 5000, "name": "TV"}
             ]
-        }' -o /dev/null 2>/dev/null && log_info "  Default indexer '1337x' added to Prowlarr." \
-        || log_warn "  Failed to add default indexer. You can add indexers manually in Prowlarr."
+        }' -o /dev/null 2>/dev/null; log_info "  Default indexer '1337x' added to Prowlarr." \
+       ; log_warn "  Failed to add default indexer. You can add indexers manually in Prowlarr."
 }
 
 # ============================================================================
