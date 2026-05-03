@@ -175,7 +175,7 @@ services:
   # ── Seerr ───────────────────────────────────────────────────────
   # Media request & discovery frontend.
   seerr:
-    image: ghcr.io/seerr-team/seerr:2.4.1
+    image: ghcr.io/seerr-team/seerr:v3.2.0
     container_name: seerr
     user: "${PUID}:${PGID}"
     restart: unless-stopped
