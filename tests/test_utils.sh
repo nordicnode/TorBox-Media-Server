@@ -14,38 +14,20 @@ failed=0
 pass() { echo -e "${GREEN}[PASS]${NC} $1"; passed=$((passed + 1)); }
 fail() { echo -e "${RED}[FAIL]${NC} $1"; failed=$((failed + 1)); }
 
-# Mask API key for display (show first/last 4 chars)
-mask_key() {
-    local k="$1"
-    if [[ ${#k} -gt 4 ]]; then
-        echo "${k:0:4}...${k: -4}"
-    else
-        echo "$k"
-    fi
-}
-
-# Generate a deterministic-length API key (32-char hex)
-generate_api_key() {
-    local key=""
-    if key=$(openssl rand -hex 16 2>/dev/null); then
-        :
-    elif key=$(xxd -p -l 16 /dev/urandom 2>/dev/null); then
-        :
-    elif key=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \t\n'); then
-        :
-    elif key=$(head -c 16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \t\n'); then
-        :
-    else
-        echo ""
-        return 1
-    fi
-    key=$(echo "$key" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-f0-9' | head -c 32)
-    if [[ ${#key} -ne 32 ]]; then
-        echo ""
-        return 1
-    fi
-    echo "$key"
-}
+# Source functions directly from setup.sh to ensure tests match implementation
+SETUP_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/setup.sh"
+if [[ -f "$SETUP_SCRIPT" ]]; then
+    # shellcheck disable=SC1090  # dynamic sourcing from process substitution is intentional — extracting functions from setup.sh
+    source <(sed -n '/^generate_api_key() {/,/^}/p' "$SETUP_SCRIPT")
+    # shellcheck disable=SC1090
+    source <(sed -n '/^mask_key() /,/^}/p' "$SETUP_SCRIPT" 2>/dev/null || true)
+    # Inline mask_key since it's a one-liner in setup.sh:
+    # shellcheck disable=SC1090
+    source <(grep '^mask_key() ' "$SETUP_SCRIPT")
+else
+    echo "Error: setup.sh not found at $SETUP_SCRIPT"
+    exit 1
+fi
 
 print_summary() {
     echo ""

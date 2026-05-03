@@ -4,6 +4,7 @@
 # Sources shared test utilities.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tests/test_utils.sh
 source "${SCRIPT_DIR}/test_utils.sh"
 
 echo "Running tests for generate_api_key..."

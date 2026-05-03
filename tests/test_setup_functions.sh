@@ -4,6 +4,7 @@
 # Tests key functions extracted from setup.sh without side effects.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tests/test_utils.sh
 source "${SCRIPT_DIR}/test_utils.sh"
 
 echo -e "${CYAN}Running TorBox Media Server test suite...${NC}"
@@ -151,6 +152,7 @@ test_api_key_regex_rejects_special() {
 }
 
 test_api_key_regex_rejects_backtick() {
+    # shellcheck disable=SC2016  # single quotes are intentional — testing that metachars are rejected as literal text
     local key='abc`whoami`'
     if [[ "$key" =~ ^[a-zA-Z0-9._-]+$ ]]; then
         fail "API key regex should reject backticks"
@@ -160,6 +162,7 @@ test_api_key_regex_rejects_backtick() {
 }
 
 test_api_key_regex_rejects_dollar() {
+    # shellcheck disable=SC2016  # single quotes are intentional — testing that metachars are rejected as literal text
     local key='abc$(id)'
     if [[ "$key" =~ ^[a-zA-Z0-9._-]+$ ]]; then
         fail "API key regex should reject dollar signs"
