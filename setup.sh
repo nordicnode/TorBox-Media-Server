@@ -589,6 +589,39 @@ gather_config() {
         done
     fi
 
+    # Generate or preserve admin credentials for the *arr services
+    if [[ -n "${EXISTING_RADARR_ADMIN_USER:-}" && -n "${EXISTING_RADARR_ADMIN_PASS:-}" ]]; then
+        RADARR_ADMIN_USER="$EXISTING_RADARR_ADMIN_USER"
+        RADARR_ADMIN_PASS="$EXISTING_RADARR_ADMIN_PASS"
+        SONARR_ADMIN_USER="$EXISTING_SONARR_ADMIN_USER"
+        SONARR_ADMIN_PASS="$EXISTING_SONARR_ADMIN_PASS"
+        PROWLARR_ADMIN_USER="$EXISTING_PROWLARR_ADMIN_USER"
+        PROWLARR_ADMIN_PASS="$EXISTING_PROWLARR_ADMIN_PASS"
+        log_info "Preserved existing admin credentials from previous installation."
+    else
+        RADARR_ADMIN_USER="admin"
+        SONARR_ADMIN_USER="admin"
+        PROWLARR_ADMIN_USER="admin"
+        
+        # Generate secure random passwords
+        RADARR_ADMIN_PASS="$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 12)"
+        SONARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
+        PROWLARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
+        
+        # Fallback if openssl fails
+        if [[ -z "$RADARR_ADMIN_PASS" ]]; then
+            RADARR_ADMIN_PASS="$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
+            SONARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
+            PROWLARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
+        fi
+        
+        # Validate passwords are non-empty
+        if [[ -z "$RADARR_ADMIN_PASS" ]]; then
+            log_error "Failed to generate admin passwords. Ensure openssl is installed."
+            exit 1
+        fi
+    fi
+
     echo ""
 
     # Hardware Acceleration — auto-detect, then prompt only if ambiguous
@@ -933,7 +966,7 @@ DECYPHARR_USER="${DECYPHARR_USER:-torbox}"
 DECYPHARR_PASS="${DECYPHARR_PASS:-}"
 ENV_EOF
 
-    # Preserve existing admin credentials if this is a re-run
+    # Preserve existing admin credentials if this is a re-run, or write newly generated ones on fresh install
     if [[ -n "${EXISTING_RADARR_ADMIN_USER:-}" ]]; then
         cat >> "${ENV_FILE}" << ADMIN_EOF
 
@@ -944,6 +977,18 @@ SONARR_ADMIN_USER="${EXISTING_SONARR_ADMIN_USER}"
 SONARR_ADMIN_PASS="${EXISTING_SONARR_ADMIN_PASS}"
 PROWLARR_ADMIN_USER="${EXISTING_PROWLARR_ADMIN_USER}"
 PROWLARR_ADMIN_PASS="${EXISTING_PROWLARR_ADMIN_PASS}"
+ADMIN_EOF
+    else
+        # Fresh install: write the newly generated admin credentials
+        cat >> "${ENV_FILE}" << ADMIN_EOF
+
+# Admin Credentials (Auto-generated)
+RADARR_ADMIN_USER="${RADARR_ADMIN_USER}"
+RADARR_ADMIN_PASS="${RADARR_ADMIN_PASS}"
+SONARR_ADMIN_USER="${SONARR_ADMIN_USER}"
+SONARR_ADMIN_PASS="${SONARR_ADMIN_PASS}"
+PROWLARR_ADMIN_USER="${PROWLARR_ADMIN_USER}"
+PROWLARR_ADMIN_PASS="${PROWLARR_ADMIN_PASS}"
 ADMIN_EOF
     fi
 
