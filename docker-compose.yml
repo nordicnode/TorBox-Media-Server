@@ -1,7 +1,14 @@
 # ============================================================================
 #  TorBox Media Server - Docker Compose
-#  This file is version-controlled in the repo. Do NOT edit manually.
-#  Re-run setup.sh to regenerate after updates.
+#
+#  This file is version-controlled in the repo and copied verbatim to the
+#  install directory by setup.sh. Hardware acceleration tweaks live in
+#  docker-compose.override.yml (auto-generated, do not edit by hand).
+#
+#  It IS expected that users edit this file post-install for LAN access
+#  (changing 127.0.0.1:PORT:PORT to PORT:PORT — see README "Accessing From
+#  Other Devices"). Any such edits are preserved across `./manage.sh update`,
+#  but will be overwritten if you re-run `./setup.sh`.
 # ============================================================================
 
 networks:
@@ -185,6 +192,11 @@ services:
       - "127.0.0.1:5055:5055"
     environment:
       - TZ=${TZ}
+    depends_on:
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
     logging:
       driver: json-file
       options:
@@ -218,7 +230,7 @@ services:
       - VERSION=docker
       - PLEX_CLAIM=${PLEX_CLAIM:-}
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:32400/identity || curl -sf http://localhost:32400/identity"]
+      test: ["CMD", "curl", "-sf", "http://localhost:32400/identity"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -245,7 +257,10 @@ services:
       - media-network
     ports:
       - "127.0.0.1:8096:8096"
-      - "127.0.0.1:8920:8920"
+      # 8920 is Jellyfin's HTTPS listener — only needed if you terminate TLS
+      # inside the container (uncommon; most users use a reverse proxy instead).
+      # Uncomment if you configure Jellyfin's built-in HTTPS:
+      # - "127.0.0.1:8920:8920"
     environment:
       - PUID=${PUID}
       - PGID=${PGID}

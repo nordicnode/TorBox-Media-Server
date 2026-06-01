@@ -110,8 +110,11 @@ else
     done
 fi
 
-# Remove the Docker network (dynamically computed from project directory name)
-project_name="$(basename "${INSTALL_DIR}")"
+# Remove the Docker network (dynamically computed from project directory name).
+# Docker normalizes the project name: lowercased, with anything outside [a-z0-9_-]
+# stripped (so e.g. "TorBox Media Server" becomes "torboxmediaserver"). Replicate
+# that here so we delete the right network on case-mixed or punctuated paths.
+project_name="$(basename "${INSTALL_DIR}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 "${DOCKER_CMD[@]}" network rm "${project_name}_media-network" 2>/dev/null || true
 
 # Step 2: Remove systemd service
@@ -170,17 +173,17 @@ if [[ "${remove_images,,}" == "y" ]]; then
     if [[ ${#DOCKER_CMD[@]} -eq 0 ]]; then
         detect_compose_cmd
     fi
-    local_removed=0
+    removed_count=0
     if [[ ${#_images[@]} -gt 0 ]]; then
         for img in "${_images[@]}"; do
             if "${DOCKER_CMD[@]}" rmi "$img" 2>/dev/null; then
                 log_info "  Removed: $img"
-                local_removed=$((local_removed + 1))
+                removed_count=$((removed_count + 1))
             fi
         done
     fi
-    if [[ $local_removed -gt 0 ]]; then
-        log_info "Removed ${local_removed} Docker image(s)."
+    if [[ $removed_count -gt 0 ]]; then
+        log_info "Removed ${removed_count} Docker image(s)."
     else
         log_warn "No images were removed (they may have already been cleaned up)."
     fi

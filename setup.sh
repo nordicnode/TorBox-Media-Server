@@ -15,10 +15,17 @@ VERSION="1.0.0"
 DRY_RUN=false
 SERVICES_STARTED=false
 
+# Tracks any temp file created by run_with_spinner so the interrupt handler can clean it up.
+SPINNER_TMPFILE=""
+
 trap 'cleanup_on_interrupt' INT TERM
 
 cleanup_on_interrupt() {
     echo ""
+    # Remove any leftover spinner temp file from an in-flight background command
+    if [[ -n "${SPINNER_TMPFILE:-}" && -e "${SPINNER_TMPFILE}" ]]; then
+        rm -f "${SPINNER_TMPFILE}"
+    fi
     # If setup never completed (.env not written), remove partial installation
     if [[ ! -f "${ENV_FILE}" && -d "${INSTALL_DIR}" ]]; then
         log_warn "Setup interrupted before completion. Cleaning up partial installation..."
@@ -128,6 +135,7 @@ run_with_spinner() {
     local msg="$1"; shift
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local tmpfile; tmpfile=$(mktemp)
+    SPINNER_TMPFILE="$tmpfile"  # exposed to cleanup_on_interrupt trap
     "$@" > "$tmpfile" 2>&1 &
     local pid=$! i=0
     while kill -0 "$pid" 2>/dev/null; do
@@ -140,6 +148,7 @@ run_with_spinner() {
     printf "\r  %-$((${#msg} + 4))s\r" ""
     if [[ $rc -ne 0 ]]; then cat "$tmpfile" >&2; fi
     rm -f "$tmpfile"
+    SPINNER_TMPFILE=""
     return "$rc"
 }
 
@@ -198,8 +207,10 @@ check_dependencies() {
         missing+=("openssl")
     fi
 
+    # timedatectl is optional — only used to auto-detect the host's timezone.
+    # On non-systemd systems we fall back to TZ=UTC (or the host's $TZ env var).
     if ! command -v timedatectl &>/dev/null; then
-        missing+=("timedatectl")
+        log_warn "timedatectl not found; will default timezone to \${TZ:-UTC}."
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -344,9 +355,6 @@ install_dependencies() {
                 openssl)
                     sudo pacman -S --noconfirm openssl
                     ;;
-                timedatectl)
-                    sudo pacman -S --noconfirm systemd
-                    ;;
             esac
         done
     elif command -v apt-get &>/dev/null; then
@@ -370,21 +378,19 @@ install_dependencies() {
                 openssl)
                     sudo apt-get install -y openssl
                     ;;
-                timedatectl)
-                    sudo apt-get install -y systemd
-                    ;;
             esac
         done
     elif command -v dnf &>/dev/null; then
         for dep in "${deps[@]}"; do
             case "$dep" in
                 docker)
-                    sudo dnf install -y docker docker-compose
+                    # Use the Compose v2 plugin — the legacy `docker-compose` (v1, Python) was deprecated July 2023.
+                    sudo dnf install -y docker docker-compose-plugin
                     sudo systemctl enable --now docker
                     sudo usermod -aG docker "$USER"
                     ;;
                 docker-compose)
-                    sudo dnf install -y docker-compose
+                    sudo dnf install -y docker-compose-plugin
                     ;;
                 curl)
                     sudo dnf install -y curl
@@ -394,9 +400,6 @@ install_dependencies() {
                     ;;
                 openssl)
                     sudo dnf install -y openssl
-                    ;;
-                timedatectl)
-                    sudo dnf install -y systemd-udev
                     ;;
             esac
         done
@@ -450,6 +453,29 @@ gather_config() {
         exit 1
     fi
     log_info "API key received (${#TORBOX_API_KEY} characters, ending in ...${TORBOX_API_KEY: -4})."
+
+    # Best-effort live verification against the TorBox API (non-fatal — works offline too).
+    if command -v curl &>/dev/null; then
+        local _torbox_check_status
+        _torbox_check_status=$(curl -s -o /dev/null -w '%{http_code}' \
+            --connect-timeout 5 --max-time 10 \
+            -H "Authorization: Bearer ${TORBOX_API_KEY}" \
+            "https://api.torbox.app/v1/api/user/me" 2>/dev/null) || _torbox_check_status="000"
+        case "$_torbox_check_status" in
+            200) log_info "TorBox API key verified against api.torbox.app." ;;
+            401|403)
+                log_error "TorBox API rejected this key (HTTP ${_torbox_check_status}). Double-check it at https://torbox.app/settings."
+                if [[ "$NON_INTERACTIVE" != "true" ]]; then
+                    read -rp "Continue with this key anyway? [y/N]: " _cont
+                    [[ "${_cont,,}" != "y" ]] && exit 1
+                else
+                    exit 1
+                fi
+                ;;
+            000|"") log_warn "Could not reach api.torbox.app to verify the key (offline?). Continuing." ;;
+            *)      log_warn "Unexpected response from TorBox API (HTTP ${_torbox_check_status}). Continuing." ;;
+        esac
+    fi
 
     echo ""
 
@@ -525,6 +551,15 @@ gather_config() {
         log_error "Mount path contains unsafe characters. Using default."
         MOUNT_DIR="/mnt/torbox-media"
     fi
+    # Reject mount paths that are inside the installation directory — this would
+    # cause recursive shared mounts (Decypharr's FUSE mount would itself be visible
+    # under INSTALL_DIR/configs, leading to mount loops and `rm -rf` data loss
+    # during uninstall).
+    if [[ "$MOUNT_DIR" == "$INSTALL_DIR" || "$MOUNT_DIR" == "$INSTALL_DIR"/* ]]; then
+        log_error "Mount path '${MOUNT_DIR}' is inside the install directory '${INSTALL_DIR}'."
+        log_error "This would cause recursive mounts and data loss. Using default."
+        MOUNT_DIR="/mnt/torbox-media"
+    fi
 
     echo ""
 
@@ -547,8 +582,14 @@ gather_config() {
         fi
     fi
 
-    # Timezone
-    TZ="$(timedatectl show -p Timezone --value 2>/dev/null || echo 'UTC')"
+    # Timezone — prefer timedatectl, then $TZ, then /etc/timezone, finally UTC.
+    if command -v timedatectl &>/dev/null; then
+        TZ="$(timedatectl show -p Timezone --value 2>/dev/null || echo '')"
+    fi
+    if [[ -z "${TZ:-}" && -r /etc/timezone ]]; then
+        TZ="$(tr -d '[:space:]' < /etc/timezone)"
+    fi
+    TZ="${TZ:-UTC}"
     echo ""
     echo -e "${BOLD}Timezone${NC}: ${TZ}"
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
@@ -556,7 +597,7 @@ gather_config() {
         if [[ "${use_tz,,}" == "n" ]]; then
             while true; do
                 read -rp "  Enter timezone (e.g., America/New_York): " TZ
-                if timedatectl list-timezones 2>/dev/null | grep -qx "$TZ"; then
+                if command -v timedatectl &>/dev/null && timedatectl list-timezones 2>/dev/null | grep -qx "$TZ"; then
                     break
                 elif [[ "$TZ" =~ ^[a-zA-Z_/+-]+$ ]]; then
                     log_warn "Could not verify timezone '$TZ' against system list. Using it anyway."
@@ -602,24 +643,28 @@ gather_config() {
         RADARR_ADMIN_USER="admin"
         SONARR_ADMIN_USER="admin"
         PROWLARR_ADMIN_USER="admin"
-        
-        # Generate secure random passwords
-        RADARR_ADMIN_PASS="$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 12)"
-        SONARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
-        PROWLARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
-        
-        # Fallback if openssl fails
-        if [[ -z "$RADARR_ADMIN_PASS" ]]; then
-            RADARR_ADMIN_PASS="$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
-            SONARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
-            PROWLARR_ADMIN_PASS="$RADARR_ADMIN_PASS"
-        fi
-        
-        # Validate passwords are non-empty
-        if [[ -z "$RADARR_ADMIN_PASS" ]]; then
-            log_error "Failed to generate admin passwords. Ensure openssl is installed."
-            exit 1
-        fi
+
+        # Generate an INDEPENDENT secure random password for each service,
+        # so a leak of one credential cannot compromise the others.
+        _gen_admin_pass() {
+            local p
+            p="$(openssl rand -base64 16 2>/dev/null | tr -d '/+=' | head -c 16)"
+            if [[ -z "$p" ]]; then
+                p="$(head -c 16 /dev/urandom | base64 | tr -d '/+=' | head -c 16)"
+            fi
+            echo "$p"
+        }
+        RADARR_ADMIN_PASS="$(_gen_admin_pass)"
+        SONARR_ADMIN_PASS="$(_gen_admin_pass)"
+        PROWLARR_ADMIN_PASS="$(_gen_admin_pass)"
+
+        # Validate passwords are non-empty and unique
+        for key_name in RADARR_ADMIN_PASS SONARR_ADMIN_PASS PROWLARR_ADMIN_PASS; do
+            if [[ -z "${!key_name}" ]]; then
+                log_error "Failed to generate admin password for ${key_name}. Ensure openssl or /dev/urandom is available."
+                exit 1
+            fi
+        done
     fi
 
     echo ""
@@ -630,36 +675,79 @@ gather_config() {
         HW_ACCEL="${TORBOX_HW_ACCEL}"
         log_info "Using hardware acceleration from TORBOX_HW_ACCEL env var: ${HW_ACCEL}"
     else
-        local detected_intel=false detected_nvidia=false
+        local detected_intel=false detected_amd=false detected_nvidia=false
+        # Distinguish Intel vs AMD GPUs by inspecting the render-node driver / PCI vendor.
+        # /dev/dri alone is not enough — both vendors expose it.
         if [[ -d /dev/dri ]]; then
-            detected_intel=true
+            local _gpu_vendors=""
+            if command -v lspci &>/dev/null; then
+                _gpu_vendors=$(lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' || true)
+            fi
+            if [[ -n "$_gpu_vendors" ]]; then
+                # Vendor IDs: Intel=8086, AMD=1002/1022, NVIDIA=10de
+                echo "$_gpu_vendors" | grep -qE '\[8086:'  && detected_intel=true
+                echo "$_gpu_vendors" | grep -qiE 'amd|ati|\[1002:|\[1022:' && detected_amd=true
+                echo "$_gpu_vendors" | grep -qiE 'nvidia|\[10de:' && detected_nvidia=true
+            else
+                # lspci not available — fall back to inspecting render-node driver symlinks
+                if find /dev/dri/by-path -maxdepth 1 -name '*render*' -ls 2>/dev/null | grep -qiE 'amdgpu|radeon'; then
+                    detected_amd=true
+                elif find /dev/dri/by-path -maxdepth 1 -name '*render*' -ls 2>/dev/null | grep -qiE 'i915|xe'; then
+                    detected_intel=true
+                else
+                    # No way to disambiguate — assume Intel (most common integrated GPU)
+                    # but warn the user so they can override.
+                    detected_intel=true
+                    log_warn "Could not identify /dev/dri GPU vendor (lspci unavailable). Assuming Intel."
+                fi
+            fi
         fi
         if command -v nvidia-smi &>/dev/null || [[ -e /dev/nvidia0 ]]; then
             detected_nvidia=true
         fi
 
-        if [[ "$detected_intel" == "true" && "$detected_nvidia" == "false" ]]; then
-            HW_ACCEL="intel"
-            log_info "Auto-detected Intel QuickSync (/dev/dri)."
-        elif [[ "$detected_nvidia" == "true" && "$detected_intel" == "false" ]]; then
-            HW_ACCEL="nvidia"
-            log_info "Auto-detected NVIDIA GPU."
-        elif [[ "$detected_intel" == "true" && "$detected_nvidia" == "true" ]]; then
-            if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        local _gpu_count=0
+        [[ "$detected_intel"  == "true" ]] && _gpu_count=$((_gpu_count + 1))
+        [[ "$detected_amd"    == "true" ]] && _gpu_count=$((_gpu_count + 1))
+        [[ "$detected_nvidia" == "true" ]] && _gpu_count=$((_gpu_count + 1))
+
+        if [[ $_gpu_count -eq 1 ]]; then
+            if [[ "$detected_intel" == "true" ]]; then
                 HW_ACCEL="intel"
-                log_info "Both GPUs detected. Non-interactive: defaulting to Intel QuickSync."
+                log_info "Auto-detected Intel QuickSync (/dev/dri)."
+            elif [[ "$detected_amd" == "true" ]]; then
+                HW_ACCEL="amd"
+                log_info "Auto-detected AMD GPU (VAAPI)."
             else
-                echo "  Both Intel and NVIDIA GPUs detected."
-                echo "  1) Intel QuickSync (recommended - uses integrated GPU, power-efficient)"
-                echo "  2) NVIDIA NVENC (uses discrete GPU, requires nvidia-container-toolkit)"
+                HW_ACCEL="nvidia"
+                log_info "Auto-detected NVIDIA GPU."
+            fi
+        elif [[ $_gpu_count -gt 1 ]]; then
+            if [[ "$NON_INTERACTIVE" == "true" ]]; then
+                # Prefer integrated GPU (power-efficient) when multiple are present
+                if   [[ "$detected_intel" == "true" ]]; then HW_ACCEL="intel"
+                elif [[ "$detected_amd"   == "true" ]]; then HW_ACCEL="amd"
+                else                                          HW_ACCEL="nvidia"
+                fi
+                log_info "Multiple GPUs detected. Non-interactive: defaulting to ${HW_ACCEL}."
+            else
+                echo "  Multiple GPUs detected:"
+                [[ "$detected_intel"  == "true" ]] && echo "    • Intel  QuickSync"
+                [[ "$detected_amd"    == "true" ]] && echo "    • AMD    VAAPI"
+                [[ "$detected_nvidia" == "true" ]] && echo "    • NVIDIA NVENC (requires nvidia-container-toolkit)"
+                echo ""
+                local opts=() i=1
+                [[ "$detected_intel"  == "true" ]] && { echo "  $i) Intel QuickSync";  opts+=("intel");  i=$((i+1)); }
+                [[ "$detected_amd"    == "true" ]] && { echo "  $i) AMD VAAPI";         opts+=("amd");    i=$((i+1)); }
+                [[ "$detected_nvidia" == "true" ]] && { echo "  $i) NVIDIA NVENC";      opts+=("nvidia"); i=$((i+1)); }
                 echo ""
                 while true; do
-                    read -rp "  Choose hardware acceleration [1/2]: " hw_choice
-                    case "$hw_choice" in
-                        1) HW_ACCEL="intel"; break ;;
-                        2) HW_ACCEL="nvidia"; break ;;
-                        *) log_error "Please enter 1 or 2." ;;
-                    esac
+                    read -rp "  Choose hardware acceleration [1-$((i-1))]: " hw_choice
+                    if [[ "$hw_choice" =~ ^[0-9]+$ ]] && (( hw_choice >= 1 && hw_choice < i )); then
+                        HW_ACCEL="${opts[$((hw_choice-1))]}"
+                        break
+                    fi
+                    log_error "Please enter a number between 1 and $((i-1))."
                 done
             fi
         else
@@ -670,15 +758,17 @@ gather_config() {
                 echo "  No GPU detected."
                 echo "  1) None (software transcoding only)"
                 echo "  2) Intel QuickSync (if you have integrated GPU)"
-                echo "  3) NVIDIA NVENC (if you have discrete GPU)"
+                echo "  3) AMD VAAPI (if you have an AMD GPU)"
+                echo "  4) NVIDIA NVENC (if you have discrete NVIDIA GPU)"
                 echo ""
                 while true; do
-                    read -rp "  Choose hardware acceleration [1/2/3]: " hw_choice
+                    read -rp "  Choose hardware acceleration [1/2/3/4]: " hw_choice
                     case "$hw_choice" in
-                        1) HW_ACCEL="none"; break ;;
-                        2) HW_ACCEL="intel"; break ;;
-                        3) HW_ACCEL="nvidia"; break ;;
-                        *) log_error "Please enter 1, 2, or 3." ;;
+                        1) HW_ACCEL="none";   break ;;
+                        2) HW_ACCEL="intel";  break ;;
+                        3) HW_ACCEL="amd";    break ;;
+                        4) HW_ACCEL="nvidia"; break ;;
+                        *) log_error "Please enter 1, 2, 3, or 4." ;;
                     esac
                 done
             fi
@@ -852,6 +942,11 @@ generate_arr_configs() {
     done
 
     # Only write fresh config.xml if it doesn't already exist
+    # NOTE: AuthenticationRequired is set to "Enabled" (not "DisabledForLocalAddresses")
+    # so the *arr services REQUIRE login from first boot, even on localhost. This closes
+    # the brief window between container startup and configure_arr_auth() finishing where
+    # the UI would otherwise be unauthenticated. The username/password are seeded into
+    # the SQLite database by configure_arr_auth() via the API once the service is ready.
     if [[ ! -f "${CONFIG_DIR}/radarr/config.xml" ]]; then
     # --- Radarr config.xml ---
     cat > "${CONFIG_DIR}/radarr/config.xml" << RADARR_XML_EOF
@@ -864,7 +959,7 @@ generate_arr_configs() {
   <BindAddress>*</BindAddress>
   <ApiKey>${RADARR_API_KEY}</ApiKey>
   <AuthenticationMethod>Forms</AuthenticationMethod>
-  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
+  <AuthenticationRequired>Enabled</AuthenticationRequired>
   <Branch>master</Branch>
   <InstanceName>Radarr</InstanceName>
 </Config>
@@ -884,7 +979,7 @@ RADARR_XML_EOF
   <BindAddress>*</BindAddress>
   <ApiKey>${SONARR_API_KEY}</ApiKey>
   <AuthenticationMethod>Forms</AuthenticationMethod>
-  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
+  <AuthenticationRequired>Enabled</AuthenticationRequired>
   <Branch>main</Branch>
   <InstanceName>Sonarr</InstanceName>
 </Config>
@@ -904,7 +999,7 @@ SONARR_XML_EOF
   <BindAddress>*</BindAddress>
   <ApiKey>${PROWLARR_API_KEY}</ApiKey>
   <AuthenticationMethod>Forms</AuthenticationMethod>
-  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
+  <AuthenticationRequired>Enabled</AuthenticationRequired>
   <Branch>develop</Branch>
   <InstanceName>Prowlarr</InstanceName>
 </Config>
@@ -1023,6 +1118,26 @@ services:
       - /dev/dri:/dev/dri
 HW_OVERRIDE
         log_info "Hardware acceleration override: Intel QuickSync (/dev/dri)."
+    elif [[ "${HW_ACCEL}" == "amd" ]]; then
+        cat > "${INSTALL_DIR}/docker-compose.override.yml" << 'HW_OVERRIDE'
+# Auto-generated: AMD VAAPI hardware acceleration
+# Active media server gets /dev/dri passthrough plus video/render groups.
+# Jellyfin/Plex use VAAPI (Mesa) for AMD GPUs.
+services:
+  plex:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "video"
+      - "render"
+  jellyfin:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "video"
+      - "render"
+HW_OVERRIDE
+        log_info "Hardware acceleration override: AMD VAAPI (/dev/dri + video/render groups)."
     elif [[ "${HW_ACCEL}" == "nvidia" ]]; then
         cat > "${INSTALL_DIR}/docker-compose.override.yml" << 'HW_OVERRIDE'
 # Auto-generated: NVIDIA GPU hardware acceleration
@@ -2125,20 +2240,29 @@ configure_arr_auth() {
         return 0
     fi
 
-    # Generate admin credentials
-    local admin_user="admin"
-    local admin_pass
-    admin_pass="$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 12)"
-    if [[ -z "$admin_pass" ]]; then
-        admin_pass="$(head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
-    fi
-
-    # Store credentials globally for post-install display
+    # Reuse credentials already generated in gather_config() / read back from .env.
+    # Generating NEW credentials here would desynchronize the .env file (which already
+    # has the previously-generated pair) from what the *arr service actually accepts.
+    local admin_user admin_pass
     case "$name" in
-        Radarr)   RADARR_ADMIN_USER="$admin_user"; RADARR_ADMIN_PASS="$admin_pass" ;;
-        Sonarr)   SONARR_ADMIN_USER="$admin_user"; SONARR_ADMIN_PASS="$admin_pass" ;;
-        Prowlarr) PROWLARR_ADMIN_USER="$admin_user"; PROWLARR_ADMIN_PASS="$admin_pass" ;;
+        Radarr)   admin_user="${RADARR_ADMIN_USER:-admin}";   admin_pass="${RADARR_ADMIN_PASS:-}"   ;;
+        Sonarr)   admin_user="${SONARR_ADMIN_USER:-admin}";   admin_pass="${SONARR_ADMIN_PASS:-}"   ;;
+        Prowlarr) admin_user="${PROWLARR_ADMIN_USER:-admin}"; admin_pass="${PROWLARR_ADMIN_PASS:-}" ;;
     esac
+
+    # Fallback: generate fresh credentials if (for any reason) none are set yet.
+    if [[ -z "$admin_pass" ]]; then
+        admin_pass="$(openssl rand -base64 16 2>/dev/null | tr -d '/+=' | head -c 16)"
+        if [[ -z "$admin_pass" ]]; then
+            admin_pass="$(head -c 16 /dev/urandom | base64 | tr -d '/+=' | head -c 16)"
+        fi
+        log_warn "  No pre-generated admin password found for ${name}; generated one on the fly."
+        case "$name" in
+            Radarr)   RADARR_ADMIN_USER="$admin_user";   RADARR_ADMIN_PASS="$admin_pass"   ;;
+            Sonarr)   SONARR_ADMIN_USER="$admin_user";   SONARR_ADMIN_PASS="$admin_pass"   ;;
+            Prowlarr) PROWLARR_ADMIN_USER="$admin_user"; PROWLARR_ADMIN_PASS="$admin_pass" ;;
+        esac
+    fi
 
     # Set auth to Forms with Enabled (always require login)
     local auth_id
@@ -2442,7 +2566,7 @@ print_post_install() {
 #  Start Services
 # ============================================================================
 
-SERVICES_STARTED=false
+# SERVICES_STARTED is declared once at the top of the file (line 16).
 
 # Globals for re-run detection (set by check_existing_installation)
 EXISTING_RADARR_API_KEY=""

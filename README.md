@@ -387,9 +387,9 @@ ports:
 
 Then restart: `./manage.sh restart`
 
-For most users, your media server (Plex or Jellyfin) is already accessible on your network. You only need to do this if you want to expose **Seerr** so family and friends can request content.
+By default **every** service — including Plex and Jellyfin — is bound to `127.0.0.1` (loopback) only. If you want other devices on your LAN to reach them, you must explicitly relax the binding for the chosen service.
 
-> **Plex note:** Plex exposes port 32400 on all interfaces by default, so it's accessible on your network at `http://YOUR-IP:32400/web`. To restrict it to localhost only, change `"32400:32400"` to `"127.0.0.1:32400:32400"` in `docker-compose.yml`.
+> **Plex note:** To expose Plex on your LAN, change `"127.0.0.1:32400:32400"` to `"32400:32400"` in `docker-compose.yml`, then run `./manage.sh restart`. Plex will then be reachable at `http://YOUR-IP:32400/web`. The same applies to Jellyfin (`8096`) and Seerr (`5055`).
 
 ### Option 2: Reverse Proxy (Advanced)
 
