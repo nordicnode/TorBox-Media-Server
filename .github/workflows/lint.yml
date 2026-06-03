@@ -7,6 +7,24 @@ on:
     branches: [main, master]
 
 jobs:
+  shfmt:
+    name: Shell Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shfmt
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/mvdan/sh/releases/download/v3.8.0/shfmt_v3.8.0_linux_amd64" -o /tmp/shfmt
+          echo "e31e40df3e9ff0a35c52eaf23ff52459e5b0fcc9e8f219354f95243aeea0d94d  /tmp/shfmt" | sha256sum -c - || { echo "shfmt checksum mismatch — update the fixed checksum"; exit 1; }
+          sudo install -m 755 /tmp/shfmt /usr/local/bin/shfmt
+          shfmt --version
+
+      - name: Check formatting
+        run: shfmt -d -i 4 -ci setup.sh uninstall.sh tests/
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest

@@ -228,7 +228,7 @@ The setup script pre-seeds and auto-configures as much as possible so you don't 
 | Setting | Value | Why |
 |---------|-------|-----|
 | API keys | Random 32-char hex keys for Radarr, Sonarr, Prowlarr | Enables API auto-configuration on first launch |
-| Authentication | `DisabledForLocalAddresses` | Allows API calls to work without credentials on first launch |
+| Authentication | `Enabled` | Requires login from first boot (auto-configured via API with pre-seeded credentials) |
 | Decypharr config | TorBox API key, WebDAV mount, rclone mount, symlink paths | Connects to your TorBox account and enables rclone FUSE mounting |
 | Systemd service | `torbox-media-server.service` | Auto-starts mount propagation and containers on boot |
 
@@ -570,7 +570,7 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Mount propagation** — uses `rshared` on Decypharr (the mount source) and `rslave` on media servers (consumers); a systemd service (`torbox-media-server`) handles this automatically on boot, and `manage.sh` re-applies it as a safety net
 - **Hardlinks disabled** — debrid setups use symlinks from Decypharr's WebDAV mount, not local files; hardlinks would fail
 - **Systemd auto-start** — a `torbox-media-server.service` unit handles mount propagation and container startup on boot, so users never have to manually start services after a reboot
-- **Auto-configured Auth** — the setup script uses `DisabledForLocalAddresses` initially to configure services via API, then securely locks them down to `Forms` (`Enabled`) with auto-generated credentials before finishing
+- **Auto-configured Auth** — the setup script pre-seeds `Forms` auth with `Enabled` from first boot, then uses the API key to programmatically set admin credentials — no unauthenticated window
 - **Pre-seeded API keys** — generated during setup and injected into config.xml before containers start, enabling fully automated API-based configuration
 - **jq for JSON manipulation** — used to modify *arr config via API; auto-installed as a dependency
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades

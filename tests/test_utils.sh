@@ -11,8 +11,14 @@ NC='\033[0m'
 passed=0
 failed=0
 
-pass() { echo -e "${GREEN}[PASS]${NC} $1"; passed=$((passed + 1)); }
-fail() { echo -e "${RED}[FAIL]${NC} $1"; failed=$((failed + 1)); }
+pass() {
+    echo -e "${GREEN}[PASS]${NC} $1"
+    passed=$((passed + 1))
+}
+fail() {
+    echo -e "${RED}[FAIL]${NC} $1"
+    failed=$((failed + 1))
+}
 
 # Source functions directly from setup.sh to ensure tests match implementation
 SETUP_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/setup.sh"

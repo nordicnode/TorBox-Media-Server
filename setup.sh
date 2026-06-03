@@ -89,7 +89,7 @@ NC='\033[0m'
 
 print_banner() {
     echo -e "${CYAN}"
-    cat << 'EOF'
+    cat <<'EOF'
   ╔══════════════════════════════════════════════════════════════╗
   ║           TorBox Media Server - All-in-One Setup            ║
   ║                                                             ║
@@ -100,12 +100,19 @@ EOF
     echo -e "${NC}"
 }
 
-log_info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
-log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
-log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
-log_step()    { echo -e "${BLUE}[STEP]${NC} ${BOLD}$*${NC}"; }
-log_section() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; echo -e "${CYAN}  $*${NC}"; echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; }
-mask_key()    { local k="$1"; if [[ ${#k} -gt 4 ]]; then echo "${k:0:4}...${k: -4}"; else echo "$k"; fi; }
+log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} ${BOLD}$*${NC}"; }
+log_section() {
+    echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  $*${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+}
+mask_key() {
+    local k="$1"
+    if [[ ${#k} -gt 4 ]]; then echo "${k:0:4}...${k: -4}"; else echo "$k"; fi
+}
 
 # Service port registry (single source of truth for all port/label references)
 SVC_ORDER=(decypharr prowlarr byparr radarr sonarr seerr)
@@ -132,11 +139,13 @@ print_service_urls() {
 
 # Run a command in the background with a spinner animation
 run_with_spinner() {
-    local msg="$1"; shift
+    local msg="$1"
+    shift
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    local tmpfile; tmpfile=$(mktemp)
-    SPINNER_TMPFILE="$tmpfile"  # exposed to cleanup_on_interrupt trap
-    "$@" > "$tmpfile" 2>&1 &
+    local tmpfile
+    tmpfile=$(mktemp)
+    SPINNER_TMPFILE="$tmpfile" # exposed to cleanup_on_interrupt trap
+    "$@" >"$tmpfile" 2>&1 &
     local pid=$! i=0
     while kill -0 "$pid" 2>/dev/null; do
         printf "\r  %s %s" "${spin_chars:i%${#spin_chars}:1}" "$msg"
@@ -463,7 +472,7 @@ gather_config() {
             "https://api.torbox.app/v1/api/user/me" 2>/dev/null) || _torbox_check_status="000"
         case "$_torbox_check_status" in
             200) log_info "TorBox API key verified against api.torbox.app." ;;
-            401|403)
+            401 | 403)
                 log_error "TorBox API rejected this key (HTTP ${_torbox_check_status}). Double-check it at https://torbox.app/settings."
                 if [[ "$NON_INTERACTIVE" != "true" ]]; then
                     read -rp "Continue with this key anyway? [y/N]: " _cont
@@ -472,8 +481,8 @@ gather_config() {
                     exit 1
                 fi
                 ;;
-            000|"") log_warn "Could not reach api.torbox.app to verify the key (offline?). Continuing." ;;
-            *)      log_warn "Unexpected response from TorBox API (HTTP ${_torbox_check_status}). Continuing." ;;
+            000 | "") log_warn "Could not reach api.torbox.app to verify the key (offline?). Continuing." ;;
+            *) log_warn "Unexpected response from TorBox API (HTTP ${_torbox_check_status}). Continuing." ;;
         esac
     fi
 
@@ -497,8 +506,14 @@ gather_config() {
         while true; do
             read -rp "  Choose your media server [1/2]: " media_choice
             case "$media_choice" in
-                1) MEDIA_SERVER="plex"; break ;;
-                2) MEDIA_SERVER="jellyfin"; break ;;
+                1)
+                    MEDIA_SERVER="plex"
+                    break
+                    ;;
+                2)
+                    MEDIA_SERVER="jellyfin"
+                    break
+                    ;;
                 *) log_error "Please enter 1 or 2." ;;
             esac
         done
@@ -587,7 +602,7 @@ gather_config() {
         TZ="$(timedatectl show -p Timezone --value 2>/dev/null || echo '')"
     fi
     if [[ -z "${TZ:-}" && -r /etc/timezone ]]; then
-        TZ="$(tr -d '[:space:]' < /etc/timezone)"
+        TZ="$(tr -d '[:space:]' </etc/timezone)"
     fi
     TZ="${TZ:-UTC}"
     echo ""
@@ -685,7 +700,7 @@ gather_config() {
             fi
             if [[ -n "$_gpu_vendors" ]]; then
                 # Vendor IDs: Intel=8086, AMD=1002/1022, NVIDIA=10de
-                echo "$_gpu_vendors" | grep -qE '\[8086:'  && detected_intel=true
+                echo "$_gpu_vendors" | grep -qE '\[8086:' && detected_intel=true
                 echo "$_gpu_vendors" | grep -qiE 'amd|ati|\[1002:|\[1022:' && detected_amd=true
                 echo "$_gpu_vendors" | grep -qiE 'nvidia|\[10de:' && detected_nvidia=true
             else
@@ -707,8 +722,8 @@ gather_config() {
         fi
 
         local _gpu_count=0
-        [[ "$detected_intel"  == "true" ]] && _gpu_count=$((_gpu_count + 1))
-        [[ "$detected_amd"    == "true" ]] && _gpu_count=$((_gpu_count + 1))
+        [[ "$detected_intel" == "true" ]] && _gpu_count=$((_gpu_count + 1))
+        [[ "$detected_amd" == "true" ]] && _gpu_count=$((_gpu_count + 1))
         [[ "$detected_nvidia" == "true" ]] && _gpu_count=$((_gpu_count + 1))
 
         if [[ $_gpu_count -eq 1 ]]; then
@@ -725,29 +740,44 @@ gather_config() {
         elif [[ $_gpu_count -gt 1 ]]; then
             if [[ "$NON_INTERACTIVE" == "true" ]]; then
                 # Prefer integrated GPU (power-efficient) when multiple are present
-                if   [[ "$detected_intel" == "true" ]]; then HW_ACCEL="intel"
-                elif [[ "$detected_amd"   == "true" ]]; then HW_ACCEL="amd"
-                else                                          HW_ACCEL="nvidia"
+                if [[ "$detected_intel" == "true" ]]; then
+                    HW_ACCEL="intel"
+                elif [[ "$detected_amd" == "true" ]]; then
+                    HW_ACCEL="amd"
+                else
+                    HW_ACCEL="nvidia"
                 fi
                 log_info "Multiple GPUs detected. Non-interactive: defaulting to ${HW_ACCEL}."
             else
                 echo "  Multiple GPUs detected:"
-                [[ "$detected_intel"  == "true" ]] && echo "    • Intel  QuickSync"
-                [[ "$detected_amd"    == "true" ]] && echo "    • AMD    VAAPI"
+                [[ "$detected_intel" == "true" ]] && echo "    • Intel  QuickSync"
+                [[ "$detected_amd" == "true" ]] && echo "    • AMD    VAAPI"
                 [[ "$detected_nvidia" == "true" ]] && echo "    • NVIDIA NVENC (requires nvidia-container-toolkit)"
                 echo ""
                 local opts=() i=1
-                [[ "$detected_intel"  == "true" ]] && { echo "  $i) Intel QuickSync";  opts+=("intel");  i=$((i+1)); }
-                [[ "$detected_amd"    == "true" ]] && { echo "  $i) AMD VAAPI";         opts+=("amd");    i=$((i+1)); }
-                [[ "$detected_nvidia" == "true" ]] && { echo "  $i) NVIDIA NVENC";      opts+=("nvidia"); i=$((i+1)); }
+                [[ "$detected_intel" == "true" ]] && {
+                    echo "  $i) Intel QuickSync"
+                    opts+=("intel")
+                    i=$((i + 1))
+                }
+                [[ "$detected_amd" == "true" ]] && {
+                    echo "  $i) AMD VAAPI"
+                    opts+=("amd")
+                    i=$((i + 1))
+                }
+                [[ "$detected_nvidia" == "true" ]] && {
+                    echo "  $i) NVIDIA NVENC"
+                    opts+=("nvidia")
+                    i=$((i + 1))
+                }
                 echo ""
                 while true; do
-                    read -rp "  Choose hardware acceleration [1-$((i-1))]: " hw_choice
-                    if [[ "$hw_choice" =~ ^[0-9]+$ ]] && (( hw_choice >= 1 && hw_choice < i )); then
-                        HW_ACCEL="${opts[$((hw_choice-1))]}"
+                    read -rp "  Choose hardware acceleration [1-$((i - 1))]: " hw_choice
+                    if [[ "$hw_choice" =~ ^[0-9]+$ ]] && ((hw_choice >= 1 && hw_choice < i)); then
+                        HW_ACCEL="${opts[$((hw_choice - 1))]}"
                         break
                     fi
-                    log_error "Please enter a number between 1 and $((i-1))."
+                    log_error "Please enter a number between 1 and $((i - 1))."
                 done
             fi
         else
@@ -764,10 +794,22 @@ gather_config() {
                 while true; do
                     read -rp "  Choose hardware acceleration [1/2/3/4]: " hw_choice
                     case "$hw_choice" in
-                        1) HW_ACCEL="none";   break ;;
-                        2) HW_ACCEL="intel";  break ;;
-                        3) HW_ACCEL="amd";    break ;;
-                        4) HW_ACCEL="nvidia"; break ;;
+                        1)
+                            HW_ACCEL="none"
+                            break
+                            ;;
+                        2)
+                            HW_ACCEL="intel"
+                            break
+                            ;;
+                        3)
+                            HW_ACCEL="amd"
+                            break
+                            ;;
+                        4)
+                            HW_ACCEL="nvidia"
+                            break
+                            ;;
                         *) log_error "Please enter 1, 2, 3, or 4." ;;
                     esac
                 done
@@ -777,10 +819,10 @@ gather_config() {
 
     # Verify nvidia-container-toolkit is installed if NVIDIA is selected
     if [[ "${HW_ACCEL}" == "nvidia" ]]; then
-        if ! command -v nvidia-container-runtime &>/dev/null && \
-           ! dpkg -l nvidia-container-toolkit &>/dev/null && \
-           ! rpm -q nvidia-container-toolkit &>/dev/null && \
-           ! pacman -Qi nvidia-container-toolkit &>/dev/null; then
+        if ! command -v nvidia-container-runtime &>/dev/null &&
+            ! dpkg -l nvidia-container-toolkit &>/dev/null &&
+            ! rpm -q nvidia-container-toolkit &>/dev/null &&
+            ! pacman -Qi nvidia-container-toolkit &>/dev/null; then
             log_error "NVIDIA GPU detected but nvidia-container-toolkit is not installed."
             log_error "Docker cannot use NVIDIA GPUs without the container toolkit."
             echo ""
@@ -884,7 +926,7 @@ generate_decypharr_config() {
         fi
     fi
 
-    cat > "${CONFIG_DIR}/decypharr/config.json" << DECYPHARR_EOF
+    cat >"${CONFIG_DIR}/decypharr/config.json" <<DECYPHARR_EOF
 {
   "debrids": [
     {
@@ -926,8 +968,8 @@ generate_arr_configs() {
     for arr_name in radarr sonarr prowlarr; do
         arr_dir="${CONFIG_DIR}/${arr_name}/config.xml"
         case "$arr_name" in
-            radarr)   arr_key="${RADARR_API_KEY}" ;;
-            sonarr)   arr_key="${SONARR_API_KEY}" ;;
+            radarr) arr_key="${RADARR_API_KEY}" ;;
+            sonarr) arr_key="${SONARR_API_KEY}" ;;
             prowlarr) arr_key="${PROWLARR_API_KEY}" ;;
         esac
         if [[ -f "$arr_dir" ]]; then
@@ -948,8 +990,8 @@ generate_arr_configs() {
     # the UI would otherwise be unauthenticated. The username/password are seeded into
     # the SQLite database by configure_arr_auth() via the API once the service is ready.
     if [[ ! -f "${CONFIG_DIR}/radarr/config.xml" ]]; then
-    # --- Radarr config.xml ---
-    cat > "${CONFIG_DIR}/radarr/config.xml" << RADARR_XML_EOF
+        # --- Radarr config.xml ---
+        cat >"${CONFIG_DIR}/radarr/config.xml" <<RADARR_XML_EOF
 <Config>
   <LogLevel>info</LogLevel>
   <EnableSsl>False</EnableSsl>
@@ -964,12 +1006,12 @@ generate_arr_configs() {
   <InstanceName>Radarr</InstanceName>
 </Config>
 RADARR_XML_EOF
-    chmod 600 "${CONFIG_DIR}/radarr/config.xml"
+        chmod 600 "${CONFIG_DIR}/radarr/config.xml"
     fi
 
     if [[ ! -f "${CONFIG_DIR}/sonarr/config.xml" ]]; then
-    # --- Sonarr config.xml ---
-    cat > "${CONFIG_DIR}/sonarr/config.xml" << SONARR_XML_EOF
+        # --- Sonarr config.xml ---
+        cat >"${CONFIG_DIR}/sonarr/config.xml" <<SONARR_XML_EOF
 <Config>
   <LogLevel>info</LogLevel>
   <EnableSsl>False</EnableSsl>
@@ -984,12 +1026,12 @@ RADARR_XML_EOF
   <InstanceName>Sonarr</InstanceName>
 </Config>
 SONARR_XML_EOF
-    chmod 600 "${CONFIG_DIR}/sonarr/config.xml"
+        chmod 600 "${CONFIG_DIR}/sonarr/config.xml"
     fi
 
     if [[ ! -f "${CONFIG_DIR}/prowlarr/config.xml" ]]; then
-    # --- Prowlarr config.xml ---
-    cat > "${CONFIG_DIR}/prowlarr/config.xml" << PROWLARR_XML_EOF
+        # --- Prowlarr config.xml ---
+        cat >"${CONFIG_DIR}/prowlarr/config.xml" <<PROWLARR_XML_EOF
 <Config>
   <LogLevel>info</LogLevel>
   <EnableSsl>False</EnableSsl>
@@ -1004,7 +1046,7 @@ SONARR_XML_EOF
   <InstanceName>Prowlarr</InstanceName>
 </Config>
 PROWLARR_XML_EOF
-    chmod 600 "${CONFIG_DIR}/prowlarr/config.xml"
+        chmod 600 "${CONFIG_DIR}/prowlarr/config.xml"
     fi
 
     log_info "Pre-seeded config.xml for Radarr, Sonarr, and Prowlarr."
@@ -1026,7 +1068,7 @@ generate_env_file() {
         compose_profile="jellyfin"
     fi
 
-    cat > "${ENV_FILE}" << ENV_EOF
+    cat >"${ENV_FILE}" <<ENV_EOF
 # TorBox Media Server - Environment Configuration
 # Generated on $(date)
 
@@ -1063,7 +1105,7 @@ ENV_EOF
 
     # Preserve existing admin credentials if this is a re-run, or write newly generated ones on fresh install
     if [[ -n "${EXISTING_RADARR_ADMIN_USER:-}" ]]; then
-        cat >> "${ENV_FILE}" << ADMIN_EOF
+        cat >>"${ENV_FILE}" <<ADMIN_EOF
 
 # Admin Credentials (Preserved)
 RADARR_ADMIN_USER="${EXISTING_RADARR_ADMIN_USER}"
@@ -1075,7 +1117,7 @@ PROWLARR_ADMIN_PASS="${EXISTING_PROWLARR_ADMIN_PASS}"
 ADMIN_EOF
     else
         # Fresh install: write the newly generated admin credentials
-        cat >> "${ENV_FILE}" << ADMIN_EOF
+        cat >>"${ENV_FILE}" <<ADMIN_EOF
 
 # Admin Credentials (Auto-generated)
 RADARR_ADMIN_USER="${RADARR_ADMIN_USER}"
@@ -1106,7 +1148,7 @@ generate_docker_compose() {
 
     # Generate hardware acceleration override (only if needed)
     if [[ "${HW_ACCEL}" == "intel" ]]; then
-        cat > "${INSTALL_DIR}/docker-compose.override.yml" << 'HW_OVERRIDE'
+        cat >"${INSTALL_DIR}/docker-compose.override.yml" <<'HW_OVERRIDE'
 # Auto-generated: Intel QuickSync hardware acceleration
 # Active media server gets /dev/dri passthrough
 services:
@@ -1119,7 +1161,7 @@ services:
 HW_OVERRIDE
         log_info "Hardware acceleration override: Intel QuickSync (/dev/dri)."
     elif [[ "${HW_ACCEL}" == "amd" ]]; then
-        cat > "${INSTALL_DIR}/docker-compose.override.yml" << 'HW_OVERRIDE'
+        cat >"${INSTALL_DIR}/docker-compose.override.yml" <<'HW_OVERRIDE'
 # Auto-generated: AMD VAAPI hardware acceleration
 # Active media server gets /dev/dri passthrough plus video/render groups.
 # Jellyfin/Plex use VAAPI (Mesa) for AMD GPUs.
@@ -1139,7 +1181,7 @@ services:
 HW_OVERRIDE
         log_info "Hardware acceleration override: AMD VAAPI (/dev/dri + video/render groups)."
     elif [[ "${HW_ACCEL}" == "nvidia" ]]; then
-        cat > "${INSTALL_DIR}/docker-compose.override.yml" << 'HW_OVERRIDE'
+        cat >"${INSTALL_DIR}/docker-compose.override.yml" <<'HW_OVERRIDE'
 # Auto-generated: NVIDIA GPU hardware acceleration
 # Active media server gets GPU passthrough
 services:
@@ -1191,7 +1233,7 @@ HW_OVERRIDE
 generate_management_script() {
     log_step "Generating management script..."
 
-    cat > "${INSTALL_DIR}/manage.sh" << 'MANAGE_EOF'
+    cat >"${INSTALL_DIR}/manage.sh" <<'MANAGE_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -1229,7 +1271,7 @@ _COMPOSE_SUDO_WARNED=false
 MANAGE_EOF
 
     # Write shared functions inline instead of using declare -f (avoids hidden dependency on setup.sh signatures)
-    cat >> "${INSTALL_DIR}/manage.sh" << 'MANAGE_INLINE'
+    cat >>"${INSTALL_DIR}/manage.sh" <<'MANAGE_INLINE'
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
 detect_compose_cmd() {
@@ -1253,7 +1295,7 @@ compose_cmd() {
 }
 MANAGE_INLINE
 
-    cat >> "${INSTALL_DIR}/manage.sh" << 'MANAGE_EOF'
+    cat >>"${INSTALL_DIR}/manage.sh" <<'MANAGE_EOF'
 
 ensure_mount_propagation() {
     local mount_dir
@@ -1544,7 +1586,7 @@ generate_systemd_service() {
         log_warn "Docker Compose v2 not detected. Systemd service may not work."
     fi
 
-    sudo tee "${service_file}" > /dev/null << SYSTEMD_EOF
+    sudo tee "${service_file}" >/dev/null <<SYSTEMD_EOF
 [Unit]
 Description=TorBox Media Server - Mount Propagation & Services
 After=local-fs.target network-online.target docker.service
@@ -1581,8 +1623,8 @@ SYSTEMD_EOF
 
     # Reload systemd and enable the service
     sudo systemctl daemon-reload
-    sudo systemctl enable "${service_name}.service" 2>/dev/null \
-        || log_warn "Could not enable systemd service. Auto-start on boot may not work (non-systemd system?)."
+    sudo systemctl enable "${service_name}.service" 2>/dev/null ||
+        log_warn "Could not enable systemd service. Auto-start on boot may not work (non-systemd system?)."
 
     log_info "Systemd service '${service_name}' created and enabled."
     log_info "Services will auto-start with mount propagation on every boot."
@@ -1613,7 +1655,8 @@ configure_arr_service() {
     existing_dc=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${api_key}" "${url}/api/v3/downloadclient" 2>/dev/null) || true
     if ! echo "$existing_dc" | grep -q '"name":"Decypharr"' 2>/dev/null && ! echo "$existing_dc" | grep -q '"name": "Decypharr"' 2>/dev/null; then
         local dc_json
-        dc_json=$(cat << DCJSON_EOF
+        dc_json=$(
+            cat <<DCJSON_EOF
 {
     "name": "Decypharr",
     "implementation": "QBittorrent",
@@ -1638,11 +1681,11 @@ configure_arr_service() {
     "tags": []
 }
 DCJSON_EOF
-)
+        )
         curl -sf --connect-timeout 5 --max-time 15 -X POST -H "Content-Type: application/json" -H "X-Api-Key: ${api_key}" \
             "${url}/api/v3/downloadclient?forceSave=true" \
-            -d "$dc_json" -o /dev/null && log_info "  Download client 'Decypharr' added to ${name}." \
-            || log_warn "  Failed to add download client to ${name}."
+            -d "$dc_json" -o /dev/null && log_info "  Download client 'Decypharr' added to ${name}." ||
+            log_warn "  Failed to add download client to ${name}."
     else
         log_info "  ${name} already has Decypharr download client configured."
     fi
@@ -1653,8 +1696,8 @@ DCJSON_EOF
     if ! echo "$existing_rf" | grep -qF "\"${root_path}\"" 2>/dev/null; then
         curl -sf --connect-timeout 5 --max-time 15 -X POST -H "Content-Type: application/json" -H "X-Api-Key: ${api_key}" \
             "${url}/api/v3/rootfolder" \
-            -d '{"path": "'"${root_path}"'"}' -o /dev/null && log_info "  Root folder '${root_path}' added to ${name}." \
-            || log_warn "  Failed to add root folder to ${name}."
+            -d '{"path": "'"${root_path}"'"}' -o /dev/null && log_info "  Root folder '${root_path}' added to ${name}." ||
+            log_warn "  Failed to add root folder to ${name}."
     else
         log_info "  ${name} already has root folder '${root_path}' configured."
     fi
@@ -1662,17 +1705,17 @@ DCJSON_EOF
     # Advanced configuration (requires jq for JSON manipulation)
     if [[ "${HAS_JQ:-false}" == "true" ]]; then
         update_arr_config "${name}" "$url" "$api_key" "config/mediamanagement" \
-            ".copyUsingHardlinks = false | .importExtraFiles = true | .extraFileExtensions = \"srt,sub,idx,ass,ssa,nfo\" | .${unmonitor_field} = false | .recycleBin = \"\" | .recycleBinCleanupDays = 0 | .minimumFreeSpaceWhenImporting = 100" \
-            && log_info "  Media management configured (hardlinks disabled for debrid)." \
-          || log_warn "  Failed to configure media management."
+            ".copyUsingHardlinks = false | .importExtraFiles = true | .extraFileExtensions = \"srt,sub,idx,ass,ssa,nfo\" | .${unmonitor_field} = false | .recycleBin = \"\" | .recycleBinCleanupDays = 0 | .minimumFreeSpaceWhenImporting = 100" &&
+            log_info "  Media management configured (hardlinks disabled for debrid)." ||
+            log_warn "  Failed to configure media management."
 
-        update_arr_config "${name}" "$url" "$api_key" "config/naming" "${naming_updates}" \
-            && log_info "  Naming conventions configured." \
-            || log_warn "  Failed to configure naming."
+        update_arr_config "${name}" "$url" "$api_key" "config/naming" "${naming_updates}" &&
+            log_info "  Naming conventions configured." ||
+            log_warn "  Failed to configure naming."
 
-        configure_quality_profiles "${name}" "$url" "$api_key" \
-            && log_info "  Quality profiles updated (upgrades enabled)." \
-            || log_warn "  Failed to update quality profiles."
+        configure_quality_profiles "${name}" "$url" "$api_key" &&
+            log_info "  Quality profiles updated (upgrades enabled)." ||
+            log_warn "  Failed to update quality profiles."
     fi
 
     # Add Plex notification so library updates happen immediately on import
@@ -1683,7 +1726,7 @@ DCJSON_EOF
             local plex_token=""
             local plex_prefs="${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
             if [[ -f "$plex_prefs" ]]; then
-                plex_token=$(grep -oP 'PlexOnlineToken="\K[^"]+' "$plex_prefs" 2>/dev/null) || true
+                plex_token=$(sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' "$plex_prefs" 2>/dev/null) || true
             fi
             if [[ -n "$plex_token" ]]; then
                 local on_download_field="onDownload" on_upgrade_field="onUpgrade"
@@ -1711,8 +1754,8 @@ DCJSON_EOF
                             {"name": "authToken", "value": "'"$plex_token"'"},
                             {"name": "updateLibrary", "value": true}
                         ]
-                    }' -o /dev/null && log_info "  Plex notification added to ${name} (instant library updates)." \
-                    || log_warn "  Failed to add Plex notification to ${name}."
+                    }' -o /dev/null && log_info "  Plex notification added to ${name} (instant library updates)." ||
+                    log_warn "  Failed to add Plex notification to ${name}."
             else
                 log_warn "  Plex token not found — skipping Plex notification for ${name}. You can add it manually in ${name} → Settings → Connect."
             fi
@@ -1728,13 +1771,22 @@ update_arr_config() {
     local config config_id updated
 
     config=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${api_key}" "${url}/api/v3/${endpoint}" 2>/dev/null) || true
-    [[ -z "$config" ]] && { log_warn "  Could not retrieve ${name} ${endpoint}."; return 1; }
+    [[ -z "$config" ]] && {
+        log_warn "  Could not retrieve ${name} ${endpoint}."
+        return 1
+    }
 
     config_id=$(echo "$config" | jq -r '.id' 2>/dev/null) || true
-    [[ -z "$config_id" || "$config_id" == "null" ]] && { log_warn "  Could not parse ${name} ${endpoint} ID."; return 1; }
+    [[ -z "$config_id" || "$config_id" == "null" ]] && {
+        log_warn "  Could not parse ${name} ${endpoint} ID."
+        return 1
+    }
 
     updated=$(echo "$config" | jq "$jq_updates" 2>/dev/null) || true
-    [[ -z "$updated" ]] && { log_warn "  Could not update ${name} ${endpoint}."; return 1; }
+    [[ -z "$updated" ]] && {
+        log_warn "  Could not update ${name} ${endpoint}."
+        return 1
+    }
 
     curl -sf --connect-timeout 5 --max-time 15 -X PUT -H "Content-Type: application/json" -H "X-Api-Key: ${api_key}" \
         "${url}/api/v3/${endpoint}/${config_id}" -d "$updated" -o /dev/null 2>/dev/null
@@ -1809,7 +1861,7 @@ configure_arrs() {
     local radarr_ready=false sonarr_ready=false prowlarr_ready=false
     if wait_for_service "Radarr" "$radarr_url" "$RADARR_API_KEY" 90 "v3"; then
         radarr_ready=true
-        sleep 3  # Allow SQLite database to fully initialize after HTTP readiness
+        sleep 3 # Allow SQLite database to fully initialize after HTTP readiness
     fi
     if wait_for_service "Sonarr" "$sonarr_url" "$SONARR_API_KEY" 90 "v3"; then
         sonarr_ready=true
@@ -1851,8 +1903,8 @@ configure_arrs() {
                         {"name": "requestTimeout", "value": 60}
                     ],
                     "tags": []
-                }' -o /dev/null && log_info "  Byparr proxy added to Prowlarr." \
-                || log_warn "  Failed to add Byparr proxy to Prowlarr."
+                }' -o /dev/null && log_info "  Byparr proxy added to Prowlarr." ||
+                log_warn "  Failed to add Byparr proxy to Prowlarr."
         else
             log_info "  Prowlarr already has Byparr proxy configured."
         fi
@@ -1876,8 +1928,8 @@ configure_arrs() {
                         {"name": "syncCategories", "value": [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060, 2070, 2080]}
                     ],
                     "tags": []
-                }' -o /dev/null && log_info "  Radarr app added to Prowlarr." \
-                || log_warn "  Failed to add Radarr app to Prowlarr."
+                }' -o /dev/null && log_info "  Radarr app added to Prowlarr." ||
+                log_warn "  Failed to add Radarr app to Prowlarr."
         else
             log_info "  Prowlarr already has Radarr app configured."
         fi
@@ -1898,8 +1950,8 @@ configure_arrs() {
                         {"name": "syncCategories", "value": [5000, 5010, 5020, 5030, 5040, 5045, 5050, 5060, 5070, 5080]}
                     ],
                     "tags": []
-                }' -o /dev/null && log_info "  Sonarr app added to Prowlarr." \
-                || log_warn "  Failed to add Sonarr app to Prowlarr."
+                }' -o /dev/null && log_info "  Sonarr app added to Prowlarr." ||
+                log_warn "  Failed to add Sonarr app to Prowlarr."
         else
             log_info "  Prowlarr already has Sonarr app configured."
         fi
@@ -1970,11 +2022,14 @@ configure_seerr() {
     # Get current Seerr settings
     local seerr_settings
     seerr_settings=$(curl -sf --connect-timeout 5 --max-time 15 "${seerr_url}/api/v1/settings/main" 2>/dev/null) || true
-    [[ -z "$seerr_settings" ]] && { log_warn "  Could not retrieve Seerr settings."; return 1; }
+    [[ -z "$seerr_settings" ]] && {
+        log_warn "  Could not retrieve Seerr settings."
+        return 1
+    }
 
     # Check if Radarr is already configured
-    if echo "$seerr_settings" | grep -q '"hostname":"radarr"' 2>/dev/null || \
-       echo "$seerr_settings" | grep -q '"hostname": "radarr"' 2>/dev/null; then
+    if echo "$seerr_settings" | grep -q '"hostname":"radarr"' 2>/dev/null ||
+        echo "$seerr_settings" | grep -q '"hostname": "radarr"' 2>/dev/null; then
         log_info "  Seerr already has Radarr configured."
     else
         # Query Radarr's default quality profile
@@ -2008,13 +2063,13 @@ configure_seerr() {
                 "tags": [],
                 "isDefault": true,
                 "externalUrl": ""
-            }' -o /dev/null 2>/dev/null && log_info "  Radarr added to Seerr (profile: ${radarr_profile_name})." \
-            || log_warn "  Failed to add Radarr to Seerr. You can configure it manually."
+            }' -o /dev/null 2>/dev/null && log_info "  Radarr added to Seerr (profile: ${radarr_profile_name})." ||
+            log_warn "  Failed to add Radarr to Seerr. You can configure it manually."
     fi
 
     # Check if Sonarr is already configured
-    if echo "$seerr_settings" | grep -q '"hostname":"sonarr"' 2>/dev/null || \
-       echo "$seerr_settings" | grep -q '"hostname": "sonarr"' 2>/dev/null; then
+    if echo "$seerr_settings" | grep -q '"hostname":"sonarr"' 2>/dev/null ||
+        echo "$seerr_settings" | grep -q '"hostname": "sonarr"' 2>/dev/null; then
         log_info "  Seerr already has Sonarr configured."
     else
         # Query Sonarr's default quality profile
@@ -2047,8 +2102,8 @@ configure_seerr() {
                 "tags": [],
                 "isDefault": true,
                 "externalUrl": ""
-            }' -o /dev/null 2>/dev/null && log_info "  Sonarr added to Seerr (profile: ${sonarr_profile_name})." \
-            || log_warn "  Failed to add Sonarr to Seerr. You can configure it manually."
+            }' -o /dev/null 2>/dev/null && log_info "  Sonarr added to Seerr (profile: ${sonarr_profile_name})." ||
+            log_warn "  Failed to add Sonarr to Seerr. You can configure it manually."
     fi
 
     # Configure Plex or Jellyfin connection in Seerr
@@ -2056,7 +2111,7 @@ configure_seerr() {
         local plex_token=""
         local plex_prefs="${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
         if [[ -f "$plex_prefs" ]]; then
-            plex_token=$(grep -oP 'PlexOnlineToken="\K[^"]+' "$plex_prefs" 2>/dev/null) || true
+            plex_token=$(sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' "$plex_prefs" 2>/dev/null) || true
         fi
         if [[ -n "$plex_token" ]]; then
             curl -sf --connect-timeout 5 --max-time 15 -X POST \
@@ -2069,8 +2124,8 @@ configure_seerr() {
                     "useSsl": false,
                     "libraries": [],
                     "webAppUrl": "http://localhost:32400/web"
-                }' -o /dev/null 2>/dev/null && log_info "  Plex server added to Seerr." \
-                || log_warn "  Failed to add Plex to Seerr. You can configure it manually."
+                }' -o /dev/null 2>/dev/null && log_info "  Plex server added to Seerr." ||
+                log_warn "  Failed to add Plex to Seerr. You can configure it manually."
         fi
     else
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
@@ -2083,8 +2138,8 @@ configure_seerr() {
                 "useSsl": false,
                 "externalUrl": "",
                 "libraries": []
-            }' -o /dev/null 2>/dev/null && log_info "  Jellyfin server added to Seerr." \
-            || log_warn "  Failed to add Jellyfin to Seerr. You can configure it manually."
+            }' -o /dev/null 2>/dev/null && log_info "  Jellyfin server added to Seerr." ||
+            log_warn "  Failed to add Jellyfin to Seerr. You can configure it manually."
     fi
 }
 
@@ -2130,7 +2185,7 @@ configure_plex_libraries() {
     # Extract Plex token
     local plex_token=""
     local plex_prefs="${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
-    plex_token=$(grep -oP 'PlexOnlineToken="\K[^"]+' "$plex_prefs" 2>/dev/null) || true
+    plex_token=$(sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' "$plex_prefs" 2>/dev/null) || true
 
     if [[ -z "$plex_token" ]]; then
         log_warn "  Could not extract Plex token. Skipping library auto-config."
@@ -2148,8 +2203,8 @@ configure_plex_libraries() {
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
             -H "X-Plex-Token: ${plex_token}" \
             "${plex_url}/library/sections?name=Movies&type=movie&agent=tv.plex.agents.movie&scanner=Plex%20Movie&language=en&location=%2Fdata%2Fmedia%2Fmovies" \
-            -o /dev/null 2>/dev/null && log_info "  Plex 'Movies' library added." \
-            || log_warn "  Failed to add Movies library. You can add it manually in Plex."
+            -o /dev/null 2>/dev/null && log_info "  Plex 'Movies' library added." ||
+            log_warn "  Failed to add Movies library. You can add it manually in Plex."
     fi
 
     if echo "$existing_libs" | grep -q 'title="TV Shows"' 2>/dev/null; then
@@ -2159,13 +2214,13 @@ configure_plex_libraries() {
         curl -sf --connect-timeout 5 --max-time 15 -X POST \
             -H "X-Plex-Token: ${plex_token}" \
             "${plex_url}/library/sections?name=TV%20Shows&type=show&agent=tv.plex.agents.series&scanner=Plex%20Series&language=en&location=%2Fdata%2Fmedia%2Ftv" \
-            -o /dev/null 2>/dev/null && log_info "  Plex 'TV Shows' library added." \
-            || log_warn "  Failed to add TV Shows library. You can add it manually in Plex."
+            -o /dev/null 2>/dev/null && log_info "  Plex 'TV Shows' library added." ||
+            log_warn "  Failed to add TV Shows library. You can add it manually in Plex."
     fi
 
     # Remove expired claim token from .env (token expires in 4 min and is single-use)
     if [[ -f "${ENV_FILE}" ]]; then
-        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "${ENV_FILE}" || true
+        grep -v '^PLEX_CLAIM=' "${ENV_FILE}" >"${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "${ENV_FILE}" || true
         log_info "  Plex claim token removed from .env (expired after first use)."
     fi
 }
@@ -2211,8 +2266,8 @@ add_default_indexer() {
                 {"id": 2000, "name": "Movies"},
                 {"id": 5000, "name": "TV"}
             ]
-        }' -o /dev/null 2>/dev/null && log_info "  Default indexer '1337x' added to Prowlarr." \
-        || log_warn "  Failed to add default indexer. You can add indexers manually in Prowlarr."
+        }' -o /dev/null 2>/dev/null && log_info "  Default indexer '1337x' added to Prowlarr." ||
+        log_warn "  Failed to add default indexer. You can add indexers manually in Prowlarr."
 }
 
 # ============================================================================
@@ -2227,15 +2282,18 @@ configure_arr_auth() {
     # Check current auth config
     local auth_config
     auth_config=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${api_key}" "${url}/api/v3/config/host" 2>/dev/null) || true
-    [[ -z "$auth_config" ]] && { log_warn "  Could not retrieve ${name} auth config."; return 1; }
+    [[ -z "$auth_config" ]] && {
+        log_warn "  Could not retrieve ${name} auth config."
+        return 1
+    }
 
     # Check if auth is already set to Forms and Required
-    if (echo "$auth_config" | grep -q '"authenticationMethod":"Forms"' 2>/dev/null || \
-        echo "$auth_config" | grep -q '"authenticationMethod": "Forms"' 2>/dev/null) && \
-       (echo "$auth_config" | grep -q '"authenticationRequired":"Enabled"' 2>/dev/null || \
-        echo "$auth_config" | grep -q '"authenticationRequired": "Enabled"' 2>/dev/null) && \
-       (echo "$auth_config" | grep -q '"username":' 2>/dev/null && \
-        ! echo "$auth_config" | grep -q '"username": ""' 2>/dev/null); then
+    if (echo "$auth_config" | grep -q '"authenticationMethod":"Forms"' 2>/dev/null ||
+        echo "$auth_config" | grep -q '"authenticationMethod": "Forms"' 2>/dev/null) &&
+        (echo "$auth_config" | grep -q '"authenticationRequired":"Enabled"' 2>/dev/null ||
+            echo "$auth_config" | grep -q '"authenticationRequired": "Enabled"' 2>/dev/null) &&
+        (echo "$auth_config" | grep -q '"username":' 2>/dev/null &&
+            ! echo "$auth_config" | grep -q '"username": ""' 2>/dev/null); then
         log_info "  ${name} already has Forms authentication configured."
         return 0
     fi
@@ -2245,9 +2303,18 @@ configure_arr_auth() {
     # has the previously-generated pair) from what the *arr service actually accepts.
     local admin_user admin_pass
     case "$name" in
-        Radarr)   admin_user="${RADARR_ADMIN_USER:-admin}";   admin_pass="${RADARR_ADMIN_PASS:-}"   ;;
-        Sonarr)   admin_user="${SONARR_ADMIN_USER:-admin}";   admin_pass="${SONARR_ADMIN_PASS:-}"   ;;
-        Prowlarr) admin_user="${PROWLARR_ADMIN_USER:-admin}"; admin_pass="${PROWLARR_ADMIN_PASS:-}" ;;
+        Radarr)
+            admin_user="${RADARR_ADMIN_USER:-admin}"
+            admin_pass="${RADARR_ADMIN_PASS:-}"
+            ;;
+        Sonarr)
+            admin_user="${SONARR_ADMIN_USER:-admin}"
+            admin_pass="${SONARR_ADMIN_PASS:-}"
+            ;;
+        Prowlarr)
+            admin_user="${PROWLARR_ADMIN_USER:-admin}"
+            admin_pass="${PROWLARR_ADMIN_PASS:-}"
+            ;;
     esac
 
     # Fallback: generate fresh credentials if (for any reason) none are set yet.
@@ -2258,23 +2325,38 @@ configure_arr_auth() {
         fi
         log_warn "  No pre-generated admin password found for ${name}; generated one on the fly."
         case "$name" in
-            Radarr)   RADARR_ADMIN_USER="$admin_user";   RADARR_ADMIN_PASS="$admin_pass"   ;;
-            Sonarr)   SONARR_ADMIN_USER="$admin_user";   SONARR_ADMIN_PASS="$admin_pass"   ;;
-            Prowlarr) PROWLARR_ADMIN_USER="$admin_user"; PROWLARR_ADMIN_PASS="$admin_pass" ;;
+            Radarr)
+                RADARR_ADMIN_USER="$admin_user"
+                RADARR_ADMIN_PASS="$admin_pass"
+                ;;
+            Sonarr)
+                SONARR_ADMIN_USER="$admin_user"
+                SONARR_ADMIN_PASS="$admin_pass"
+                ;;
+            Prowlarr)
+                PROWLARR_ADMIN_USER="$admin_user"
+                PROWLARR_ADMIN_PASS="$admin_pass"
+                ;;
         esac
     fi
 
     # Set auth to Forms with Enabled (always require login)
     local auth_id
     auth_id=$(echo "$auth_config" | jq -r '.id' 2>/dev/null) || true
-    [[ -z "$auth_id" || "$auth_id" == "null" ]] && { log_warn "  Could not parse ${name} auth config ID."; return 1; }
+    [[ -z "$auth_id" || "$auth_id" == "null" ]] && {
+        log_warn "  Could not parse ${name} auth config ID."
+        return 1
+    }
 
     local updated_auth
     updated_auth=$(echo "$auth_config" | jq \
         --arg user "$admin_user" \
         --arg pass "$admin_pass" \
         '.authenticationMethod = "Forms" | .authenticationRequired = "Enabled" | .username = $user | .password = $pass' 2>/dev/null) || true
-    [[ -z "$updated_auth" ]] && { log_warn "  Could not update ${name} auth config."; return 1; }
+    [[ -z "$updated_auth" ]] && {
+        log_warn "  Could not update ${name} auth config."
+        return 1
+    }
 
     if curl -sf --connect-timeout 5 --max-time 15 -X PUT \
         -H "Content-Type: application/json" \
@@ -2284,15 +2366,15 @@ configure_arr_auth() {
         log_info "  ${name} auth set to Forms (Enabled) with auto-generated credentials."
         local env_key_prefix
         case "$name" in
-            Radarr)   env_key_prefix="RADARR_ADMIN" ;;
-            Sonarr)   env_key_prefix="SONARR_ADMIN" ;;
+            Radarr) env_key_prefix="RADARR_ADMIN" ;;
+            Sonarr) env_key_prefix="SONARR_ADMIN" ;;
             Prowlarr) env_key_prefix="PROWLARR_ADMIN" ;;
         esac
 
         # Remove old entries and append new ones
-        grep -v "^${env_key_prefix}_USER=\|^${env_key_prefix}_PASS=" "${ENV_FILE}" > "${ENV_FILE}.tmp" 2>/dev/null || true
-        echo "${env_key_prefix}_USER=\"${admin_user}\"" >> "${ENV_FILE}.tmp"
-        echo "${env_key_prefix}_PASS=\"${admin_pass}\"" >> "${ENV_FILE}.tmp"
+        grep -v "^${env_key_prefix}_USER=\|^${env_key_prefix}_PASS=" "${ENV_FILE}" >"${ENV_FILE}.tmp" 2>/dev/null || true
+        echo "${env_key_prefix}_USER=\"${admin_user}\"" >>"${ENV_FILE}.tmp"
+        echo "${env_key_prefix}_PASS=\"${admin_pass}\"" >>"${ENV_FILE}.tmp"
         mv "${ENV_FILE}.tmp" "${ENV_FILE}"
         chmod 600 "${ENV_FILE}"
     else
@@ -2355,12 +2437,12 @@ print_post_install() {
         echo -e "  ${GREEN}✓${NC} Prowlarr Sonarr app connection"
         echo -e "  ${GREEN}✓${NC} Seerr Radarr & Sonarr connection"
         if [[ "$MEDIA_SERVER" == "plex" ]]; then
-        echo -e "  ${GREEN}✓${NC} Radarr Plex notification (instant library updates)"
-        echo -e "  ${GREEN}✓${NC} Sonarr Plex notification (instant library updates)"
-        echo -e "  ${GREEN}✓${NC} Plex libraries (Movies + TV Shows)"
-        echo -e "  ${GREEN}✓${NC} Seerr Plex server connection"
+            echo -e "  ${GREEN}✓${NC} Radarr Plex notification (instant library updates)"
+            echo -e "  ${GREEN}✓${NC} Sonarr Plex notification (instant library updates)"
+            echo -e "  ${GREEN}✓${NC} Plex libraries (Movies + TV Shows)"
+            echo -e "  ${GREEN}✓${NC} Seerr Plex server connection"
         else
-        echo -e "  ${GREEN}✓${NC} Seerr Jellyfin server connection"
+            echo -e "  ${GREEN}✓${NC} Seerr Jellyfin server connection"
         fi
         echo ""
     fi
@@ -2696,9 +2778,9 @@ main() {
     # Parse command-line flags (moved to the very beginning)
     for arg in "$@"; do
         case "$arg" in
-            -y|--yes|--non-interactive) NON_INTERACTIVE=true ;;
-            -d|--dry-run) DRY_RUN=true ;;
-            -h|--help)
+            -y | --yes | --non-interactive) NON_INTERACTIVE=true ;;
+            -d | --dry-run) DRY_RUN=true ;;
+            -h | --help)
                 echo "TorBox Media Server Setup v${VERSION}"
                 echo "Usage: ./setup.sh [OPTIONS]"
                 echo ""
@@ -2716,7 +2798,7 @@ main() {
                 echo "  TORBOX_START_SERVICES 'true' or 'false' (default: true)"
                 exit 0
                 ;;
-            -v|--version)
+            -v | --version)
                 echo "TorBox Media Server Setup v${VERSION}"
                 exit 0
                 ;;

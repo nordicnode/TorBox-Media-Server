@@ -215,7 +215,7 @@ test_mount_path_regex_accepts_underscores() {
 test_env_val_extraction() {
     local tmpdir
     tmpdir=$(mktemp -d)
-    echo 'RADARR_API_KEY="abcdef123456"' > "$tmpdir/test.env"
+    echo 'RADARR_API_KEY="abcdef123456"' >"$tmpdir/test.env"
     local result
     result=$(grep '^RADARR_API_KEY=' "$tmpdir/test.env" | cut -d= -f2- | tr -d '"' | tr -d "'")
     if [[ "$result" == "abcdef123456" ]]; then
@@ -229,7 +229,7 @@ test_env_val_extraction() {
 test_env_val_no_quotes() {
     local tmpdir
     tmpdir=$(mktemp -d)
-    echo 'RADARR_API_KEY=abcdef123456' > "$tmpdir/test.env"
+    echo 'RADARR_API_KEY=abcdef123456' >"$tmpdir/test.env"
     local result
     result=$(grep '^RADARR_API_KEY=' "$tmpdir/test.env" | cut -d= -f2- | tr -d '"' | tr -d "'")
     if [[ "$result" == "abcdef123456" ]]; then
@@ -243,7 +243,7 @@ test_env_val_no_quotes() {
 test_env_val_single_quotes() {
     local tmpdir
     tmpdir=$(mktemp -d)
-    echo "MOUNT_DIR='/mnt/torbox-media'" > "$tmpdir/test.env"
+    echo "MOUNT_DIR='/mnt/torbox-media'" >"$tmpdir/test.env"
     local result
     result=$(grep '^MOUNT_DIR=' "$tmpdir/test.env" | cut -d= -f2- | tr -d '"' | tr -d "'")
     if [[ "$result" == "/mnt/torbox-media" ]]; then
@@ -257,7 +257,7 @@ test_env_val_single_quotes() {
 test_env_val_missing_key() {
     local tmpdir
     tmpdir=$(mktemp -d)
-    echo 'OTHER_KEY=value' > "$tmpdir/test.env"
+    echo 'OTHER_KEY=value' >"$tmpdir/test.env"
     local result
     result=$(grep '^RADARR_API_KEY=' "$tmpdir/test.env" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
     if [[ -z "$result" ]]; then
@@ -339,6 +339,96 @@ test_decypharr_config_mount_readonly() {
         pass "Decypharr config.json is mounted as read-only file"
     else
         fail "Decypharr config should use file-level :ro mount"
+    fi
+}
+
+# ============================================================================
+#  Function: Plex token sed extraction (portable fallback for grep -oP)
+# ============================================================================
+
+test_plex_token_sed_extracts_token() {
+    local prefs_xml='Prefs PlexOnlineToken="abc123xyz" foo="bar"'
+    local result
+    result=$(echo "$prefs_xml" | sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' 2>/dev/null) || true
+    if [[ "$result" == "abc123xyz" ]]; then
+        pass "Plex token sed extracts token from Preferences.xml line"
+    else
+        fail "Plex token sed expected 'abc123xyz', got '$result'"
+    fi
+}
+
+test_plex_token_sed_no_token_empty() {
+    local prefs_xml='Prefs SomeOther="value"'
+    local result
+    result=$(echo "$prefs_xml" | sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' 2>/dev/null) || true
+    if [[ -z "$result" ]]; then
+        pass "Plex token sed returns empty when no token present"
+    else
+        fail "Plex token sed should return empty, got '$result'"
+    fi
+}
+
+test_plex_token_sed_rejects_empty_token() {
+    local prefs_xml='Prefs PlexOnlineToken=""'
+    local result
+    result=$(echo "$prefs_xml" | sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' 2>/dev/null) || true
+    if [[ -z "$result" ]]; then
+        pass "Plex token sed returns empty for empty token (one-or-more guard)"
+    else
+        fail "Plex token sed should not match empty token, got '$result'"
+    fi
+}
+
+test_plex_token_sed_handles_multiline() {
+    local prefs_xml='line1: junk
+  PlexOnlineToken="token456def"
+  MoreStuff="yep"'
+    local result
+    result=$(echo "$prefs_xml" | sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' 2>/dev/null) || true
+    if [[ "$result" == "token456def" ]]; then
+        pass "Plex token sed works across multiline input"
+    else
+        fail "Plex token sed multiline expected 'token456def', got '$result'"
+    fi
+}
+
+# ============================================================================
+#  Function: .gitignore validation (no markdown fence artifacts)
+# ============================================================================
+
+test_gitignore_no_markdown_fences() {
+    local gitignore="${SCRIPT_DIR}/../.gitignore"
+    if [[ ! -f "$gitignore" ]]; then
+        echo -e "${CYAN}[SKIP]${NC} Cannot find .gitignore to check"
+        return
+    fi
+    local fence_issues=0
+
+    # Check for lines beginning with three backticks (markdown code fence opener)
+    if grep -qE '^```' "$gitignore" 2>/dev/null; then
+        fail ".gitignore contains markdown code fence lines (backtick fence)"
+        fence_issues=1
+    fi
+
+    # Check for the specific ```bash artifact we removed
+    if grep -qF '```bash' "$gitignore" 2>/dev/null; then
+        fail ".gitignore contains a backtick-bash fence artifact"
+        fence_issues=1
+    fi
+
+    if [[ $fence_issues -eq 0 ]]; then
+        pass ".gitignore is free of markdown fence artifacts"
+    fi
+}
+
+test_gitignore_starts_with_comment() {
+    local gitignore="${SCRIPT_DIR}/../.gitignore"
+    local first_line
+    first_line=$(head -1 "$gitignore" 2>/dev/null) || true
+    if [[ "$first_line" == "# Environment" ]]; then
+        pass ".gitignore starts with '# Environment' (no fence artifacts)"
+    else
+        fail ".gitignore first line is '$first_line', expected '# Environment'"
     fi
 }
 
@@ -534,6 +624,18 @@ test_uses_jq_for_json
 test_no_docker_compose_v1
 test_nvidia_toolkit_check
 test_mount_stacking_guard
+
+echo ""
+echo "--- Plex token sed extraction tests ---"
+test_plex_token_sed_extracts_token
+test_plex_token_sed_no_token_empty
+test_plex_token_sed_rejects_empty_token
+test_plex_token_sed_handles_multiline
+
+echo ""
+echo "--- .gitignore validation tests ---"
+test_gitignore_no_markdown_fences
+test_gitignore_starts_with_comment
 
 print_summary
 exit $?

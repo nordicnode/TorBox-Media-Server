@@ -9,7 +9,7 @@ set -euo pipefail
 NON_INTERACTIVE=false
 for arg in "$@"; do
     case "$arg" in
-        -y|--yes|--non-interactive) NON_INTERACTIVE=true ;;
+        -y | --yes | --non-interactive) NON_INTERACTIVE=true ;;
     esac
 done
 
@@ -26,8 +26,8 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-log_info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # Safely read a value from .env without executing shell code
@@ -59,7 +59,7 @@ compose_cmd() {
 }
 
 echo -e "${CYAN}"
-cat << 'EOF'
+cat <<'EOF'
   ╔══════════════════════════════════════════════════════════════╗
   ║           TorBox Media Server - Uninstall                   ║
   ╚══════════════════════════════════════════════════════════════╝
