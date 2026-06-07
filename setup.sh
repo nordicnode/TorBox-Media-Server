@@ -719,7 +719,10 @@ gather_config() {
                 # Use PCI class codes 0300 (VGA) and 0302 (3D controller) to
                 # avoid false positives — a naive text grep on "3d" matches
                 # hex IDs like [8086:a33d] in PCIe root port lines.
-                _gpu_vendors=$( (lspci -d ::0300 -nn 2>/dev/null; lspci -d ::0302 -nn 2>/dev/null) || true)
+                _gpu_vendors=$( (
+                    lspci -d ::0300 -nn 2>/dev/null
+                    lspci -d ::0302 -nn 2>/dev/null
+                ) || true)
             fi
             if [[ -n "$_gpu_vendors" ]]; then
                 # Vendor IDs: Intel=8086, AMD=1002/1022, NVIDIA=10de
