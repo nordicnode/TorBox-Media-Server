@@ -31,7 +31,7 @@ TORBOX_API_KEY="your-api-key" TORBOX_MEDIA_SERVER="plex" ./setup.sh --yes
 
 Run `./setup.sh --help` for all available options.
 
-> **Prerequisites:** A Linux machine with an internet connection, and a [TorBox paid plan](https://torbox.app). The script auto-installs Docker, FUSE, and jq.
+> **Prerequisites:** A Linux machine with an internet connection, and a [TorBox paid plan](https://torbox.app). The script auto-installs Docker, FUSE, curl, jq, and openssl.
 
 ---
 
@@ -191,10 +191,13 @@ The script will interactively ask you for:
 | **TorBox API key** | Paste the API key from your [TorBox settings](https://torbox.app/settings) |
 | **Plex or Jellyfin** | Choose `1` for Plex or `2` for Jellyfin |
 | **Plex claim token** | (Plex only) Paste your claim token, or press Enter to skip |
-| **Hardware acceleration** | Auto-detected; only prompted if both Intel and NVIDIA GPUs are present |
+| **Mount directory** | Press Enter to accept default (`/mnt/torbox-media`) or type a custom path |
+| **User/Group IDs** | Press Enter to accept auto-detected PUID/PGID, or enter custom values |
+| **Timezone** | Press Enter to accept auto-detected timezone, or enter a custom one |
+| **Hardware acceleration** | Auto-detected; prompted only if multiple GPUs are present or none detected |
 | **Start services?** | Press Enter or `Y` to start immediately (recommended) |
 
-> **Auto-detected values:** Mount directory (`/mnt/torbox-media`), user/group IDs, timezone, and hardware acceleration are auto-detected. Override via environment variables: `TORBOX_MOUNT_DIR`, `TORBOX_HW_ACCEL`.
+> **Auto-detected values:** Mount directory (`/mnt/torbox-media`), user/group IDs, timezone, and hardware acceleration are auto-detected. Override via environment variables: `TORBOX_MOUNT_DIR`, `TORBOX_HW_ACCEL`, `TORBOX_INDEXER_URL`.
 
 Then the script automatically:
 
@@ -229,6 +232,8 @@ The setup script pre-seeds and auto-configures as much as possible so you don't 
 |---------|-------|-----|
 | API keys | Random 32-char hex keys for Radarr, Sonarr, Prowlarr | Enables API auto-configuration on first launch |
 | Authentication | `Enabled` | Requires login from first boot (auto-configured via API with pre-seeded credentials) |
+| Admin credentials | Auto-generated username/password for Radarr, Sonarr, Prowlarr | Stored in `.env`, seeded into *arr SQLite databases via API after containers start |
+| Decypharr credentials | Auto-generated username/password for Decypharr web UI | Injected into `config.json` during setup |
 | Decypharr config | TorBox API key, WebDAV mount, rclone mount, symlink paths | Connects to your TorBox account and enables rclone FUSE mounting |
 | Systemd service | `torbox-media-server.service` | Auto-starts mount propagation and containers on boot |
 
@@ -238,9 +243,10 @@ The setup script pre-seeds and auto-configures as much as possible so you don't 
 |---------|-------------------|
 | **Radarr** | Download client (Decypharr), root folder, media management settings, naming convention, quality profile upgrades, Plex notifications |
 | **Sonarr** | Download client (Decypharr), root folder, media management settings, naming convention, quality profile upgrades, Plex/Jellyfin notifications |
-| **Prowlarr** | Connected to Radarr + Sonarr, default indexer (1337x) added |
+| **Prowlarr** | Connected to Radarr + Sonarr, default indexer (1337x) added, Byparr configured as FlareSolverr proxy |
 | **Seerr** | Connected to Radarr, Sonarr, and your media server (Plex or Jellyfin) |
 | **Plex** | Libraries for Movies and TV Shows created (if claim token was provided) |
+| **Radarr/Sonarr/Prowlarr** | Admin authentication (Forms auth with auto-generated credentials) configured via API |
 
 > **Requires jq for API configuration.** If jq isn't available, the script skips the JSON-based auto-configuration steps. Run `./setup.sh` again after installing jq to complete configuration.
 
@@ -330,16 +336,20 @@ cd torbox-media-server/
 ./manage.sh status    # Check service status
 ./manage.sh logs      # View all logs (follow mode)
 ./manage.sh logs radarr  # View specific service logs
-./manage.sh update    # Pull pinned image versions & restart
+./manage.sh pull      # Pull pinned image versions without restarting
+./manage.sh update    # Pull pinned images and restart
 ./manage.sh down      # Stop and remove containers
 ./manage.sh urls      # Show all service URLs
 ./manage.sh keys      # Show API keys (use with care)
+./manage.sh keys --show-secrets  # Show API keys unmasked
 ./manage.sh enable    # Enable auto-start on boot
 ./manage.sh disable   # Disable auto-start on boot
 ./manage.sh backup    # Backup configuration and credentials
 ./manage.sh restore   # Restore configuration from a backup
 ./manage.sh health    # Run health checks on all services
 ./manage.sh shell svc # Open a shell inside a container (e.g. radarr)
+./manage.sh version   # Show version
+./manage.sh help      # Show all available commands
 ```
 
 > **Auto-start on boot:** The setup script installs a systemd service (`torbox-media-server`) that automatically handles mount propagation and starts all containers when your computer boots. You don't need to do anything — just turn on your computer and everything will be running.
@@ -348,21 +358,25 @@ cd torbox-media-server/
 
 ```
 torbox-media-server/
-├── docker-compose.yml          # Version-controlled Docker Compose
-├── .env                        # API keys, user IDs, timezone, mount paths
-├── manage.sh                   # Management script (start/stop/logs/etc.)
+├── docker-compose.yml               # Version-controlled Docker Compose
+├── docker-compose.override.yml      # Auto-generated HW acceleration (if needed)
+├── .env                             # API keys, user IDs, timezone, mount paths
+├── .setup_complete                  # Marker file (created on successful setup)
+├── manage.sh                        # Management script (start/stop/logs/etc.)
 ├── configs/
-│   ├── decypharr/config.json   # Decypharr config (TorBox API key, WebDAV)
-│   ├── prowlarr/config.xml     # Pre-seeded API key & auth settings
-│   ├── radarr/config.xml       # Pre-seeded API key & auth settings
-│   ├── sonarr/config.xml       # Pre-seeded API key & auth settings
+│   ├── decypharr/config.json        # Decypharr config (TorBox API key, WebDAV)
+│   ├── prowlarr/config.xml          # Pre-seeded API key & auth settings
+│   ├── radarr/config.xml            # Pre-seeded API key & auth settings
+│   ├── sonarr/config.xml            # Pre-seeded API key & auth settings
 │   ├── seerr/
 │   └── plex/ or jellyfin/
 └── data/
     ├── media/
-    │   ├── movies/              # Radarr root folder (symlinks to cloud files)
-    │   └── tv/                  # Sonarr root folder (symlinks to cloud files)
-    └── downloads/               # Decypharr symlinks landing zone
+    │   ├── movies/                   # Radarr root folder (symlinks to cloud files)
+    │   └── tv/                       # Sonarr root folder (symlinks to cloud files)
+    └── downloads/
+        ├── radarr/                   # Radarr download staging
+        └── sonarr/                   # Sonarr download staging
 ```
 
 The project root also contains:
@@ -407,7 +421,7 @@ For remote access outside your home network, use a reverse proxy like [Caddy](ht
 - **Authentication is set to `Forms` with `Enabled`** automatically during setup. Secure admin credentials are auto-generated for Radarr, Sonarr, and Prowlarr, ensuring they are protected by default if you choose to expose them to your LAN
 - **The `.env` file** contains your TorBox API key, admin credentials, and *arr API keys — it's `chmod 600` (owner-read only). Don't commit it to version control
 - **Only Decypharr** gets `SYS_ADMIN` capability and FUSE access — other containers only read files via symlinks
-- **Decypharr config is mounted read-only** — the config directory is bound as `:ro` to prevent containers from modifying their own configuration
+- **Decypharr config is mounted read-write** — the config directory is bind-mounted without `:ro` because Decypharr v2.0 needs to `chown` config.json on startup
 
 > ⚠️ **Never expose Radarr, Sonarr, Prowlarr, or Decypharr admin UIs to the public internet** without authentication and a reverse proxy with HTTPS. Seerr is designed for this purpose and has its own authentication system.
 
@@ -424,7 +438,7 @@ cd torbox-media-server/
 
 This pulls the pinned Docker image versions and restarts all containers. Your configuration and data are preserved.
 
-> **Note:** Docker images are pinned to specific versions in `setup.sh` for reproducibility. To upgrade to newer versions, re-run `./setup.sh` which regenerates the Docker Compose file with updated image tags.
+> **Note:** Docker images are pinned to specific versions in `docker-compose.yml` for reproducibility (except Byparr, which uses `:latest`). To upgrade to newer versions, run `git pull` to update the repo, then re-run `./setup.sh` which copies the updated Docker Compose file to your install directory.
 
 ---
 
@@ -438,15 +452,31 @@ chmod +x uninstall.sh
 ```
 
 The script will:
-1. Stop and remove all Docker containers and the network
-2. Remove the systemd auto-start service
-3. Unmount and remove the mount point
-4. Remove the installation directory (configs, data, docker-compose, .env)
-5. Optionally remove Docker images to free ~5–8 GB of disk space
+1. Optionally create a backup of your configuration before anything is removed
+2. Stop and remove all Docker containers and the network
+3. Remove the systemd auto-start service
+4. Unmount and remove the mount point
+5. Remove the installation directory (configs, data, docker-compose, .env)
+6. Optionally remove Docker images to free ~5–8 GB of disk space
 
 You'll be asked to confirm before anything is removed. Your TorBox account and cloud-stored media are not affected.
 
 > **Note:** This does not uninstall Docker itself. To reclaim all Docker disk space (including unrelated images), run `docker system prune -a`.
+
+---
+
+## Environment Variables
+
+The following environment variables can be set before running `./setup.sh --yes` for unattended installs, or used to override defaults in interactive mode:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TORBOX_API_KEY` | *(required)* | Your TorBox API key from [torbox.app/settings](https://torbox.app/settings) |
+| `TORBOX_MEDIA_SERVER` | `plex` | Media server choice: `plex` or `jellyfin` |
+| `TORBOX_PLEX_CLAIM` | *(empty)* | Plex claim token from [plex.tv/claim](https://www.plex.tv/claim/) |
+| `TORBOX_MOUNT_DIR` | `/mnt/torbox-media` | Custom mount directory for rclone FUSE mount |
+| `TORBOX_HW_ACCEL` | *(auto-detected)* | Hardware acceleration: `none`, `intel`, `amd`, or `nvidia` |
+| `TORBOX_INDEXER_URL` | `https://1337x.to` | Custom Prowlarr default indexer URL |
 
 ---
 
@@ -578,8 +608,8 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Pre-seeded API keys** — generated during setup and injected into config.xml before containers start, enabling fully automated API-based configuration
 - **jq for JSON manipulation** — used to modify *arr config via API; auto-installed as a dependency
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
-- **Docker images pinned to specific versions** — avoids breakage from upstream changes; re-run `setup.sh` to pick up newer versions intentionally
-- **Decypharr config mounted read-only** — config.json is bind-mounted as `:ro` to prevent containers from accidentally modifying it
+- **Docker images pinned to specific versions** — image tags are pinned in `docker-compose.yml` to avoid breakage from upstream changes (except Byparr, which uses `:latest`); run `git pull` then re-run `./setup.sh` to pick up newer versions intentionally
+- **Decypharr config mounted read-write** — config.json is bind-mounted without `:ro` because Decypharr v2.0 attempts to `chown` the file on startup, which fails with read-only mounts
 - **Decypharr credentials pre-seeded** — generated during setup and injected into config.json, eliminating manual credential creation
 
 ---
