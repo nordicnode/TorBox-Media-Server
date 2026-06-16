@@ -13,7 +13,7 @@ trap 'echo -e "\n\033[0;31m[ERROR] Unexpected error at line $LINENO in command: 
 #  Designed for CachyOS (Arch-based) but works on most Linux distros.
 # ============================================================================
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 DRY_RUN=false
 SERVICES_STARTED=false
 NON_INTERACTIVE=false

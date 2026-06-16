@@ -8,7 +8,7 @@ Components: Prowlarr, Byparr, Decypharr, Seerr,
             Radarr, Sonarr, rclone/WinFSP mount, Plex or Jellyfin
 #>
 
-$Version = "1.0.0"
+$Version = "1.1.0"
 $DryRun = $false
 $ServicesStarted = $false
 $NonInteractive = $false
