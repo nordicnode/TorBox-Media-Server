@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/badge/Requires-Docker-blue?logo=docker)](https://docs.docker.com/get-docker/)
 [![TorBox](https://img.shields.io/badge/Powered%20by-TorBox-orange)](https://torbox.app)
-[![GitHub Stars](https://img.shields.io/github/stars/nordicnode/TorBox-Media-Server?style=social)](https://github.com/nordicnode/TorBox-Media-Server/stargazers)
+[![GitHub Stars](https://badgen.net/github/stars/nordicnode/TorBox-Media-Server?icon=github&color=4a90e2)](https://github.com/nordicnode/TorBox-Media-Server/stargazers)
 
 </div>
 
