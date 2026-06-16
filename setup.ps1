@@ -49,10 +49,12 @@ function New-ApiKey {
 }
 
 function New-AdminPass {
-    $bytes = New-Object Byte[] 12
+    $bytes = New-Object Byte[] 32
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     $rng.GetBytes($bytes)
-    return [Convert]::ToBase64String($bytes).Replace('/', '').Replace('+', '').Replace('=', '')
+    $pass = [Convert]::ToBase64String($bytes).Replace('/', '').Replace('+', '').Replace('=', '')
+    if ($pass.Length -gt 32) { $pass = $pass.Substring(0, 32) }
+    return $pass
 }
 
 function Get-MaskedKey ($Key) {
@@ -111,6 +113,12 @@ function Invoke-PrintServiceUrls {
 
 function Test-Dependencies {
     Write-LogSection "System Checks"
+    
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-LogWarn "Not running as Administrator. Creating the default mount directory (C:\torbox-media) or initializing system mounts may fail without elevated privileges."
+    }
+
     $missing = @()
     if (-not (Get-Command "docker" -ErrorAction SilentlyContinue)) {
         $missing += "Docker Desktop"

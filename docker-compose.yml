@@ -96,7 +96,7 @@ services:
   # ── Byparr ────────────────────────────────────────────────────
   # Cloudflare bypass proxy (Byparr - drop-in FlareSolverr replacement).
   byparr:
-    image: ghcr.io/thephaseless/byparr:latest
+    image: ghcr.io/thephaseless/byparr:v1.0.0
     container_name: byparr
     restart: unless-stopped
     networks:

@@ -127,10 +127,10 @@ else
     pass "All ports bound to 127.0.0.1"
 fi
 
-# 2.4 No :latest tags (except intentionally excluded services)
-latest_images=$(grep -E '^\s+image:' "$COMPOSE_FILE" | grep ':latest' | grep -v 'byparr' || true)
+# 2.4 No :latest tags (all services pinned)
+latest_images=$(grep -E '^\s+image:' "$COMPOSE_FILE" | grep ':latest' || true)
 if [[ -z "$latest_images" ]]; then
-    pass "No Docker images use :latest tag (excluding byparr)"
+    pass "No Docker images use :latest tag"
 else
     fail "Docker images using :latest tag" "$latest_images"
 fi

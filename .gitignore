@@ -5,6 +5,7 @@
 !.env.example
 docker-compose.override.yml
 docker-compose.override.yaml
+torbox-media-server/
 
 # Logs and temp files
 *.log

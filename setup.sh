@@ -86,12 +86,12 @@ generate_api_key() {
     echo "$key"
 }
 
-# Generate secure random admin passwords
+# Generate secure random admin passwords (32 chars, ~192 bits entropy)
 _gen_admin_pass() {
     local p=""
-    if p=$(openssl rand -base64 16 2>/dev/null | tr -d '/+=' | head -c 16); then
+    if p=$(openssl rand -base64 32 2>/dev/null | tr -d '/+=' | head -c 32); then
         :
-    elif p=$(head -c 16 /dev/urandom 2>/dev/null | base64 | tr -d '/+=' | head -c 16); then
+    elif p=$(head -c 32 /dev/urandom 2>/dev/null | base64 | tr -d '/+=' | head -c 32); then
         :
     fi
     echo "$p"
@@ -1171,30 +1171,38 @@ DECYPHARR_PASS="${DECYPHARR_PASS:-}"
 ENV_EOF
 
     # Preserve existing admin credentials if this is a re-run, or write newly generated ones on fresh install
-    if [[ -n "${EXISTING_RADARR_ADMIN_USER:-}" ]]; then
-        cat >>"${ENV_FILE}" <<ADMIN_EOF
-
-# Admin Credentials (Preserved)
-RADARR_ADMIN_USER="${EXISTING_RADARR_ADMIN_USER}"
-RADARR_ADMIN_PASS="${EXISTING_RADARR_ADMIN_PASS}"
-SONARR_ADMIN_USER="${EXISTING_SONARR_ADMIN_USER}"
-SONARR_ADMIN_PASS="${EXISTING_SONARR_ADMIN_PASS}"
-PROWLARR_ADMIN_USER="${EXISTING_PROWLARR_ADMIN_USER}"
-PROWLARR_ADMIN_PASS="${EXISTING_PROWLARR_ADMIN_PASS}"
-ADMIN_EOF
-    else
-        # Fresh install: write the newly generated admin credentials
-        cat >>"${ENV_FILE}" <<ADMIN_EOF
-
-# Admin Credentials (Auto-generated)
-RADARR_ADMIN_USER="${RADARR_ADMIN_USER}"
-RADARR_ADMIN_PASS="${RADARR_ADMIN_PASS}"
-SONARR_ADMIN_USER="${SONARR_ADMIN_USER}"
-SONARR_ADMIN_PASS="${SONARR_ADMIN_PASS}"
-PROWLARR_ADMIN_USER="${PROWLARR_ADMIN_USER}"
-PROWLARR_ADMIN_PASS="${PROWLARR_ADMIN_PASS}"
-ADMIN_EOF
-    fi
+    # Check each service independently to avoid losing credentials if only some exist
+    {
+        echo ""
+        echo "# Admin Credentials"
+        if [[ -n "${EXISTING_RADARR_ADMIN_USER:-}" && -n "${EXISTING_RADARR_ADMIN_PASS:-}" ]]; then
+            echo "RADARR_ADMIN_USER=\"${EXISTING_RADARR_ADMIN_USER}\""
+            echo "RADARR_ADMIN_PASS=\"${EXISTING_RADARR_ADMIN_PASS}\""
+            log_info "  Preserved existing Radarr admin credentials."
+        else
+            echo "RADARR_ADMIN_USER=\"${RADARR_ADMIN_USER}\""
+            echo "RADARR_ADMIN_PASS=\"${RADARR_ADMIN_PASS}\""
+            log_info "  Generated new Radarr admin credentials."
+        fi
+        if [[ -n "${EXISTING_SONARR_ADMIN_USER:-}" && -n "${EXISTING_SONARR_ADMIN_PASS:-}" ]]; then
+            echo "SONARR_ADMIN_USER=\"${EXISTING_SONARR_ADMIN_USER}\""
+            echo "SONARR_ADMIN_PASS=\"${EXISTING_SONARR_ADMIN_PASS}\""
+            log_info "  Preserved existing Sonarr admin credentials."
+        else
+            echo "SONARR_ADMIN_USER=\"${SONARR_ADMIN_USER}\""
+            echo "SONARR_ADMIN_PASS=\"${SONARR_ADMIN_PASS}\""
+            log_info "  Generated new Sonarr admin credentials."
+        fi
+        if [[ -n "${EXISTING_PROWLARR_ADMIN_USER:-}" && -n "${EXISTING_PROWLARR_ADMIN_PASS:-}" ]]; then
+            echo "PROWLARR_ADMIN_USER=\"${EXISTING_PROWLARR_ADMIN_USER}\""
+            echo "PROWLARR_ADMIN_PASS=\"${EXISTING_PROWLARR_ADMIN_PASS}\""
+            log_info "  Preserved existing Prowlarr admin credentials."
+        else
+            echo "PROWLARR_ADMIN_USER=\"${PROWLARR_ADMIN_USER}\""
+            echo "PROWLARR_ADMIN_PASS=\"${PROWLARR_ADMIN_PASS}\""
+            log_info "  Generated new Prowlarr admin credentials."
+        fi
+    } >>"${ENV_FILE}"
 
     chmod 600 "${ENV_FILE}"
     log_info "Environment file written (profile: ${compose_profile})."
@@ -1667,11 +1675,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+EnvironmentFile=${ENV_FILE}
 
 # Step 1: Set up FUSE mount propagation (required for rclone WebDAV in Decypharr)
 # Guard with findmnt to prevent mount stacking on repeated restarts
-ExecStartPre=/bin/bash -c "findmnt -n '${MOUNT_DIR}' >/dev/null 2>&1 || mount --bind '${MOUNT_DIR}' '${MOUNT_DIR}'"
-ExecStartPre=/bin/bash -c "mount --make-shared '${MOUNT_DIR}'"
+ExecStartPre=/bin/bash -c "findmnt -n '\$MOUNT_DIR' >/dev/null 2>&1 || mount --bind '\$MOUNT_DIR' '\$MOUNT_DIR'"
+ExecStartPre=/bin/bash -c "mount --make-shared '\$MOUNT_DIR'"
 
 # Step 2: Start all containers (foreground so systemd tracks the process)
 ExecStart=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" up --remove-orphans
@@ -1680,7 +1689,7 @@ ExecStart=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" up --remove-orp
 ExecStop=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" stop
 
 # Clean up bind mount left by FUSE propagation
-ExecStopPost=-/bin/bash -c "umount -l '${MOUNT_DIR}' || true"
+ExecStopPost=-/bin/bash -c "umount -l '\$MOUNT_DIR' || true"
 
 Restart=on-failure
 RestartSec=10
@@ -2270,21 +2279,19 @@ configure_plex_libraries() {
         return 1
     fi
 
-    # Securely write Plex token to a temp curl config file
-    local curl_cfg
-    curl_cfg=$(mktemp /tmp/plex-curl.XXXXXX)
-    echo "header = \"X-Plex-Token: ${plex_token}\"" >"${curl_cfg}"
-    trap 'rm -f "${curl_cfg}"' RETURN
+    # Pass Plex token via header directly (avoid writing to /tmp)
+    local plex_auth_header="X-Plex-Token: ${plex_token}"
 
     # Check if libraries already exist
     local existing_libs
-    existing_libs=$(curl -K "${curl_cfg}" -sf --connect-timeout 5 --max-time 15 "${plex_url}/library/sections" 2>/dev/null) || true
+    existing_libs=$(curl -sf --connect-timeout 5 --max-time 15 -H "${plex_auth_header}" "${plex_url}/library/sections" 2>/dev/null) || true
+
 
     if echo "$existing_libs" | grep -q 'title="Movies"' 2>/dev/null; then
         log_info "  Plex 'Movies' library already exists."
     else
         # Add Movies library
-        curl -K "${curl_cfg}" -sf --connect-timeout 5 --max-time 15 -X POST \
+        curl -sf --connect-timeout 5 --max-time 15 -X POST -H "${plex_auth_header}" \
             "${plex_url}/library/sections?name=Movies&type=movie&agent=tv.plex.agents.movie&scanner=Plex%20Movie&language=en&location=%2Fdata%2Fmedia%2Fmovies" \
             -o /dev/null 2>/dev/null && log_info "  Plex 'Movies' library added." ||
             log_warn "  Failed to add Movies library. You can add it manually in Plex."
@@ -2294,7 +2301,7 @@ configure_plex_libraries() {
         log_info "  Plex 'TV Shows' library already exists."
     else
         # Add TV Shows library
-        curl -K "${curl_cfg}" -sf --connect-timeout 5 --max-time 15 -X POST \
+        curl -sf --connect-timeout 5 --max-time 15 -X POST -H "${plex_auth_header}" \
             "${plex_url}/library/sections?name=TV%20Shows&type=show&agent=tv.plex.agents.series&scanner=Plex%20Series&language=en&location=%2Fdata%2Fmedia%2Ftv" \
             -o /dev/null 2>/dev/null && log_info "  Plex 'TV Shows' library added." ||
             log_warn "  Failed to add TV Shows library. You can add it manually in Plex."

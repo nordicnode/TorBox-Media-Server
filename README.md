@@ -18,6 +18,8 @@ A single script that installs, configures, and runs a complete debrid-powered me
 
 ## ⚡ Quick Start
 
+### Linux
+
 ```bash
 git clone https://github.com/nordicnode/TorBox-Media-Server.git && cd TorBox-Media-Server
 chmod +x setup.sh && ./setup.sh
@@ -31,7 +33,27 @@ TORBOX_API_KEY="your-api-key" TORBOX_MEDIA_SERVER="plex" ./setup.sh --yes
 
 Run `./setup.sh --help` for all available options.
 
-> **Prerequisites:** A Linux machine with an internet connection, and a [TorBox paid plan](https://torbox.app). The script auto-installs Docker, FUSE, curl, jq, and openssl.
+### Windows
+
+Open **PowerShell** as **Administrator** and run:
+
+```powershell
+git clone https://github.com/nordicnode/TorBox-Media-Server.git
+cd TorBox-Media-Server
+.\setup.ps1
+```
+
+For unattended installs:
+
+```powershell
+$env:TORBOX_API_KEY="your-api-key"; $env:TORBOX_MEDIA_SERVER="plex"; .\setup.ps1 -y
+```
+
+Run `.\setup.ps1 --help` for all available options.
+
+> **Prerequisites:**
+> - **Linux:** A Linux machine with an internet connection, and a [TorBox paid plan](https://torbox.app). The script auto-installs Docker, FUSE, curl, jq, and openssl.
+> - **Windows:** A Windows machine running Windows PowerShell 5.1+ or PowerShell Core, with [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running, and a [TorBox paid plan](https://torbox.app).
 
 ---
 
@@ -151,7 +173,7 @@ Before running the setup script, make sure you have everything ready:
 
 ### Required
 
-- [ ] **A Linux machine** — Designed for CachyOS (Arch-based) but works on Debian/Ubuntu, Fedora, and most distros
+- [ ] **A Linux or Windows machine** — Designed for Linux (CachyOS/Arch, Ubuntu, etc.) or Windows (using PowerShell + Docker Desktop)
 - [ ] **A TorBox account with a paid plan** — [Sign up at torbox.app](https://torbox.app) (plans start at a few dollars/month)
 - [ ] **Your TorBox API key** — After signing up:
   1. Go to [torbox.app/settings](https://torbox.app/settings)
@@ -171,14 +193,14 @@ Before running the setup script, make sure you have everything ready:
 
 ### Technical Prerequisites
 
-The setup script checks for these and can install them automatically:
+The setup scripts check for these dependencies:
 
-| Requirement | Purpose | Auto-installed? |
-|---|---|---|
-| **Docker** + **Docker Compose** | Runs all services in containers | ✅ Yes |
-| **FUSE** | Enables rclone WebDAV mounts | Checked (usually pre-installed) |
-| **jq** | JSON manipulation for advanced auto-configuration | ✅ Yes |
-| **openssl** | Generates random API keys and passwords | ✅ Yes |
+| Requirement | Purpose | Linux Auto-installed? | Windows Requirement |
+|---|---|---|---|
+| **Docker** + **Docker Compose** | Runs all services in containers | ✅ Yes | **Docker Desktop** (Installed & running) |
+| **FUSE** | Enables rclone WebDAV mounts | Checked (usually pre-installed) | Handled inside WSL2 VM / Docker Desktop |
+| **jq** | JSON API configuration | ✅ Yes | Handled natively via PowerShell |
+| **openssl** | Random API keys and passwords | ✅ Yes | Handled natively via PowerShell RNGCrypto |
 
 ---
 
@@ -380,8 +402,10 @@ torbox-media-server/
 ```
 
 The project root also contains:
-- `setup.sh` — Main installation and configuration script
-- `uninstall.sh` — Clean removal script (stop containers, remove configs, systemd service)
+- `setup.sh` — Linux installation and configuration script
+- `uninstall.sh` — Linux clean removal script (stop containers, remove configs, systemd service)
+- `setup.ps1` — Windows installation and configuration script
+- `uninstall.ps1` — Windows clean removal script (stop containers, remove configs)
 
 ---
 
@@ -438,17 +462,27 @@ cd torbox-media-server/
 
 This pulls the pinned Docker image versions and restarts all containers. Your configuration and data are preserved.
 
-> **Note:** Docker images are pinned to specific versions in `docker-compose.yml` for reproducibility (except Byparr, which uses `:latest`). To upgrade to newer versions, run `git pull` to update the repo, then re-run `./setup.sh` which copies the updated Docker Compose file to your install directory.
+> **Note:** Docker images are pinned to specific versions in `docker-compose.yml` for reproducibility. To upgrade to newer versions, run `git pull` to update the repo, then re-run `./setup.sh` (Linux) or `.\setup.ps1` (Windows) which copies the updated Docker Compose file to your install directory.
 
 ---
 
 ## Uninstalling
+
+### Linux
 
 Run the uninstall script from the project root:
 
 ```bash
 chmod +x uninstall.sh
 ./uninstall.sh
+```
+
+### Windows
+
+Run the uninstall script from the project root (using an Administrator PowerShell):
+
+```powershell
+.\uninstall.ps1
 ```
 
 The script will:
@@ -608,7 +642,7 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Pre-seeded API keys** — generated during setup and injected into config.xml before containers start, enabling fully automated API-based configuration
 - **jq for JSON manipulation** — used to modify *arr config via API; auto-installed as a dependency
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
-- **Docker images pinned to specific versions** — image tags are pinned in `docker-compose.yml` to avoid breakage from upstream changes (except Byparr, which uses `:latest`); run `git pull` then re-run `./setup.sh` to pick up newer versions intentionally
+- **Docker images pinned to specific versions** — image tags are pinned in `docker-compose.yml` to avoid breakage from upstream changes; run `git pull` then re-run `./setup.sh` (Linux) or `.\setup.ps1` (Windows) to pick up newer versions intentionally
 - **Decypharr config mounted read-write** — config.json is bind-mounted without `:ro` because Decypharr v2.0 attempts to `chown` the file on startup, which fails with read-only mounts
 - **Decypharr credentials pre-seeded** — generated during setup and injected into config.json, eliminating manual credential creation
 
