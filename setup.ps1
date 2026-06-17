@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 TorBox Media Server - All-in-One Setup Script
 Automated setup for a debrid-powered media server using Docker on Windows

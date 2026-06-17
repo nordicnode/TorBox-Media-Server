@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 TorBox Media Server - Uninstall Script
 Removes all containers, configs, and data on Windows.
