@@ -100,7 +100,7 @@ services:
   # ── Byparr ────────────────────────────────────────────────────
   # Cloudflare bypass proxy (Byparr - drop-in FlareSolverr replacement).
   byparr:
-    image: ghcr.io/thephaseless/byparr:v1.0.0
+    image: ghcr.io/thephaseless/byparr:2.1.0
     container_name: byparr
     restart: unless-stopped
     networks:
@@ -158,8 +158,8 @@ services:
       test: ["CMD", "curl", "-sf", "http://localhost:7878/ping"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 10
+      start_period: 180s
     volumes:
       - "${CONFIG_DIR}/radarr:/config"
       - "${DATA_DIR}:/data"
@@ -198,8 +198,8 @@ services:
       test: ["CMD", "curl", "-sf", "http://localhost:8989/ping"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 10
+      start_period: 180s
     volumes:
       - "${CONFIG_DIR}/sonarr:/config"
       - "${DATA_DIR}:/data"
@@ -224,9 +224,9 @@ services:
       - TZ=${TZ:-UTC}
     depends_on:
       radarr:
-        condition: service_healthy
+        condition: service_started
       sonarr:
-        condition: service_healthy
+        condition: service_started
     logging:
       driver: json-file
       options:

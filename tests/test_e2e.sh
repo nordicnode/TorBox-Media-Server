@@ -326,6 +326,27 @@ else
     pass "IMP-5: Port conflict regex handles end-of-line"
 fi
 
+# 4.11 BUG-6: manage.sh heredoc must not escape $ in mask_val / $show_secrets
+# The cmd_keys() heredoc uses <<'MANAGE_EOF' (single-quoted), which means
+# bash does NOT expand variables — they are literal in the output file.
+# If setup.sh contains \$ inside a single-quoted heredoc, the generated
+# manage.sh will print literal $ instead of executing $(mask_val ...).
+cmd_keys_block=$(sed -n '/cmd_keys()/,/^}/p' "$SETUP_SCRIPT")
+if echo "$cmd_keys_block" | grep -qE '<<.MANAGE_EOF'; then
+    # Find use of mask_val or $show_secrets inside the heredoc
+    heredoc_body=$(sed -n '/<<.*MANAGE_EOF/,/^MANAGE_EOF$/p' "$SETUP_SCRIPT")
+    if echo "$heredoc_body" | grep -qE '\\\$\([^)]*mask_val'; then
+        fail "BUG-6: mask_val call escaped as \\\$(mask_val) inside <<'MANAGE_EOF'" \
+            "Generated manage.sh will print literal \$(mask_val) text"
+    elif echo "$heredoc_body" | grep -qE '^\s+echo.*\$\(mask_val'; then
+        pass "BUG-6: mask_val call correctly unescaped in heredoc"
+    else
+        warn "BUG-6: Could not locate mask_val call in manage.sh heredoc"
+    fi
+else
+    warn "BUG-6: Could not locate cmd_keys heredoc"
+fi
+
 # ============================================================================
 #  5. CONFIG & DOCUMENTATION TESTS
 # ============================================================================
@@ -385,7 +406,7 @@ manage_heredoc=$(awk "/cat >.*manage.sh.*<<'MANAGE_EOF'/,/^MANAGE_EOF$/" "$SETUP
 manage_inline=$(awk "/cat >>.*manage.sh.*<<'MANAGE_INLINE'/,/^MANAGE_INLINE$/" "$SETUP_SCRIPT" 2>/dev/null || true)
 
 # 6.1 manage.sh has all required commands
-for cmd in start stop restart status logs pull update down urls keys enable disable backup restore health shell version help; do
+for cmd in start stop restart status logs pull update down urls keys reset-auth enable disable backup restore health shell version help; do
     if echo "$manage_heredoc" "$manage_inline" | grep -qE "^\s+${cmd}[)|]"; then
         pass "manage.sh includes '${cmd}' command"
     elif echo "$manage_heredoc" | grep -q "$cmd"; then

@@ -35,6 +35,36 @@ TORBOX_API_KEY="your-api-key" TORBOX_MEDIA_SERVER="plex" ./setup.sh --yes
 
 Run `./setup.sh --help` for all available options.
 
+### CasaOS (Ubuntu)
+
+SSH into your CasaOS box. **You must pass your TorBox API key** (the curl one-liner cannot prompt interactively):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nordicnode/TorBox-Media-Server/main/install-casaos.sh | TORBOX_API_KEY="your-api-key" bash
+```
+
+What it does:
+- Clones source to `/DATA/AppData/torbox-media-server-src`
+- Installs configs + containers to `/DATA/AppData/torbox-media-server`
+- Mounts media at `/DATA/Media/torbox-media`
+- Exposes ports on your LAN (not just localhost)
+
+After install, open **Seerr** at `http://YOUR-CASAOS-IP:5055` (replace with your box's IP).
+
+```bash
+cd /DATA/AppData/torbox-media-server && ./manage.sh status
+```
+
+> Containers run via Docker Compose — they **won't appear as CasaOS app tiles**. Use the URLs above or `manage.sh urls`.
+
+If install failed or nothing is running, re-run the curl command above (it's safe to re-run), or manually:
+
+```bash
+cd /DATA/AppData/torbox-media-server-src
+TORBOX_INSTALL_DIR=/DATA/AppData/torbox-media-server TORBOX_CASAOS=true TORBOX_API_KEY="your-api-key" ./setup.sh --yes
+cd /DATA/AppData/torbox-media-server && ./manage.sh start
+```
+
 ### Windows
 
 Open **PowerShell** as **Administrator** and run:
@@ -61,6 +91,7 @@ Run `.\setup.ps1 --help` for all available options.
 
 ## 📑 Table of Contents
 
+- [CasaOS (Ubuntu)](#casaos-ubuntu)
 - [How It Works](#how-it-works)
 - [Architecture](#architecture)
 - [Components](#components)
@@ -366,6 +397,7 @@ cd torbox-media-server/
 ./manage.sh urls      # Show all service URLs
 ./manage.sh keys      # Show API keys (use with care)
 ./manage.sh keys --show-secrets  # Show API keys unmasked
+./manage.sh reset-auth  # Re-push .env admin credentials to Radarr/Sonarr/Prowlarr
 ./manage.sh enable    # Enable auto-start on boot
 ./manage.sh disable   # Disable auto-start on boot
 ./manage.sh backup    # Backup configuration and credentials
@@ -513,6 +545,9 @@ The following environment variables can be set before running `./setup.sh --yes`
 | `TORBOX_MOUNT_DIR` | `/mnt/torbox-media` | Custom mount directory for rclone FUSE mount |
 | `TORBOX_HW_ACCEL` | *(auto-detected)* | Hardware acceleration: `none`, `intel`, `amd`, or `nvidia` |
 | `TORBOX_INDEXER_URL` | `https://1337x.to` | Custom Prowlarr default indexer URL |
+| `TORBOX_INSTALL_DIR` | `<repo>/torbox-media-server` | Custom install directory (used by CasaOS installer) |
+| `TORBOX_CASAOS` | `false` | Set `true` when installing on CasaOS |
+| `SYNC_AUTH_ONLY` | `false` | Set `true` to only re-sync admin credentials to running *arrs (no full setup) |
 
 ---
 
@@ -627,6 +662,48 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 3. Click **Test** — if it fails, verify the URL and API key are correct
 4. The internal URLs should be `http://radarr:7878` and `http://sonarr:8989`
 
+### CasaOS: install seemed to work but nothing runs
+
+1. **Check containers are actually up:**
+   ```bash
+   cd /DATA/AppData/torbox-media-server && ./manage.sh status
+   docker ps
+   ```
+2. **If `manage.sh` is missing**, setup never finished — re-run with your API key:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/nordicnode/TorBox-Media-Server/main/install-casaos.sh | TORBOX_API_KEY=*** bash
+   ```
+3. **Open services by IP, not localhost** — from another device use `http://YOUR-CASAOS-IP:5055` (Seerr), not `localhost`.
+4. **View logs** if a container keeps restarting:
+   ```bash
+   cd /DATA/AppData/torbox-media-server && ./manage.sh logs decypharr
+   ```
+5. **`.env` parse error with `\x1b`** — older setup wrote log lines into `.env`. Fix in place:
+   ```bash
+   grep -v $'\x1b' /DATA/AppData/torbox-media-server/.env > /tmp/torbox.env && mv /tmp/torbox.env /DATA/AppData/torbox-media-server/.env
+   cd /DATA/AppData/torbox-media-server && ./manage.sh restart
+   ```
+   Or re-run the curl installer (it auto-repairs `.env` now).
+6. **Radarr/Sonarr unhealthy on first start** — common on slower CasaOS boxes (DB migration can take several minutes):
+   ```bash
+   sudo chown -R 1000:1000 /DATA/AppData/torbox-media-server/configs /DATA/AppData/torbox-media-server/data
+   sudo mkdir -p /DATA/Media/torbox-media
+   sudo mount --bind /DATA/Media/torbox-media /DATA/Media/torbox-media 2>/dev/null || true
+   sudo mount --make-shared /DATA/Media/torbox-media
+   docker logs radarr --tail 50
+   docker logs sonarr --tail 50
+   cd /DATA/AppData/torbox-media-server-src && git pull
+   cp docker-compose.yml /DATA/AppData/torbox-media-server/
+   cd /DATA/AppData/torbox-media-server && sudo ./manage.sh restart
+   ```
+   Wait 3–5 minutes on first boot before checking `docker ps` again.
+7. **Radarr/Sonarr password from `.env` does not work** — passwords are written to `.env` at install time but only applied to the apps when auto-config runs. If containers were unhealthy during setup, sync them:
+   ```bash
+   cd /DATA/AppData/torbox-media-server-src && git pull
+   TORBOX_INSTALL_DIR=/DATA/AppData/torbox-media-server ./setup.sh --sync-auth
+   ```
+   Or after updating `manage.sh`: `cd /DATA/AppData/torbox-media-server && ./manage.sh reset-auth`
+
 ---
 
 ## Design Decisions
@@ -640,7 +717,7 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **Mount propagation** — uses `rshared` on Decypharr (the mount source) and `rslave` on media servers (consumers); a systemd service (`torbox-media-server`) handles this automatically on boot, and `manage.sh` re-applies it as a safety net
 - **Hardlinks disabled** — debrid setups use symlinks from Decypharr's WebDAV mount, not local files; hardlinks would fail
 - **Systemd auto-start** — a `torbox-media-server.service` unit handles mount propagation and container startup on boot, so users never have to manually start services after a reboot
-- **Auto-configured Auth** — the setup script pre-seeds `Forms` auth with `Enabled` from first boot, then uses the API key to programmatically set admin credentials — no unauthenticated window
+- **Auto-configured Auth** — the setup script pre-seeds `Forms` auth with `DisabledForLocalAddresses` on first boot (so users can reach the UI even if auto-config fails), then uses the API key to programmatically set admin credentials. A `--sync-auth` flag and `manage.sh reset-auth` command provide manual credential sync
 - **Pre-seeded API keys** — generated during setup and injected into config.xml before containers start, enabling fully automated API-based configuration
 - **jq for JSON manipulation** — used to modify *arr config via API; auto-installed as a dependency
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
