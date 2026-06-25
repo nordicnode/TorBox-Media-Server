@@ -334,8 +334,8 @@ test_decypharr_dir_mount() {
     # not permitted" on chown and, if the host file is missing, Docker creates
     # a directory at the host path — both trigger a crash-loop. The official
     # Decypharr docs mount the entire config directory to /app.
-    if grep -q 'decypharr:/app' "$PROJECT_ROOT/docker-compose.yml" 2>/dev/null &&
-        ! grep -q 'config.json:/app' "$PROJECT_ROOT/docker-compose.yml" 2>/dev/null; then
+    if grep -q 'decypharr:/app' "${SCRIPT_DIR}/../docker-compose.yml" 2>/dev/null &&
+        ! grep -q 'config.json:/app' "${SCRIPT_DIR}/../docker-compose.yml" 2>/dev/null; then
         pass "Decypharr config directory is mounted to /app (compatible with v2.0)"
     else
         fail "Decypharr uses file-level bind mount for config.json (will crash-loop with v2.0 — use directory mount)"
