@@ -39,6 +39,10 @@ services:
       - /dev/fuse:/dev/fuse:rwm
     cap_add:
       - SYS_ADMIN
+      - SETGID
+      - SETUID
+      - CHOWN
+      - DAC_OVERRIDE
     cap_drop:
       - ALL
     healthcheck:
@@ -79,6 +83,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    cap_add:
+      - SETGID
+      - SETUID
+      - CHOWN
+      - DAC_OVERRIDE
     cap_drop:
       - ALL
     depends_on:
@@ -149,6 +158,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    cap_add:
+      - SETGID
+      - SETUID
+      - CHOWN
+      - DAC_OVERRIDE
     cap_drop:
       - ALL
     depends_on:
@@ -189,6 +203,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    cap_add:
+      - SETGID
+      - SETUID
+      - CHOWN
+      - DAC_OVERRIDE
     cap_drop:
       - ALL
     depends_on:
@@ -232,6 +251,10 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
     cap_drop:
       - ALL
     healthcheck:
@@ -265,6 +288,11 @@ services:
       - TZ=${TZ:-UTC}
       - VERSION=docker
       - PLEX_CLAIM=${PLEX_CLAIM:-}
+    cap_add:
+      - SETGID
+      - SETUID
+      - CHOWN
+      - DAC_OVERRIDE
     cap_drop:
       - ALL
     depends_on:
@@ -311,6 +339,11 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-UTC}
       - JELLYFIN_PublishedServerUrl=${JELLYFIN_PUBLISHED_URL:-http://localhost:8096}
+    cap_add:
+      - SETGID
+      - SETUID
+      - CHOWN
+      - DAC_OVERRIDE
     cap_drop:
       - ALL
     depends_on:

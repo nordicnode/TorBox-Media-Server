@@ -734,11 +734,43 @@ test_compose_has_cap_drop_on_all_services() {
     fi
 }
 
+test_compose_s6_overlay_has_cap_add() {
+    # linuxserver.io containers use s6-overlay which needs SETGID/SETUID
+    # for privilege dropping (setgroups/setuid syscalls). Without these
+    # capabilities, cap_drop:ALL causes:
+    #   s6-applyuidgid: fatal: unable to set supplementary group list:
+    #   Operation not permitted
+    local compose_file="${SCRIPT_DIR}/../docker-compose.yml"
+    local s6_services="prowlarr radarr sonarr plex jellyfin"
+    local missing=0
+    for svc in $s6_services; do
+        local block
+        block=$(grep -A 40 "^  ${svc}:" "$compose_file")
+        if ! echo "$block" | grep -q 'cap_add:'; then
+            echo "  WARN: $svc missing cap_add (needed for s6-overlay)" >&2
+            missing=$((missing+1))
+        fi
+        if ! echo "$block" | grep -q 'SETGID'; then
+            echo "  WARN: $svc missing SETGID in cap_add" >&2
+            missing=$((missing+1))
+        fi
+        if ! echo "$block" | grep -q 'SETUID'; then
+            echo "  WARN: $svc missing SETUID in cap_add" >&2
+            missing=$((missing+1))
+        fi
+    done
+    if [[ $missing -eq 0 ]]; then
+        pass "All s6-overlay services have SETGID/SETUID in cap_add"
+    else
+        fail "$missing s6-overlay service(s) missing required cap_add entries"
+    fi
+}
+
 test_compose_media_servers_depend_on_decypharr() {
     local compose_file="${SCRIPT_DIR}/../docker-compose.yml"
     local plex_dep jellyfin_dep
-    plex_dep=$(grep -A 25 '^  plex:' "$compose_file" | grep -c 'decypharr')
-    jellyfin_dep=$(grep -A 25 '^  jellyfin:' "$compose_file" | grep -c 'decypharr')
+    plex_dep=$(grep -A 35 '^  plex:' "$compose_file" | grep -c 'decypharr')
+    jellyfin_dep=$(grep -A 35 '^  jellyfin:' "$compose_file" | grep -c 'decypharr')
     if [[ $plex_dep -gt 0 && $jellyfin_dep -gt 0 ]]; then
         pass "Plex and Jellyfin depend on Decypharr"
     else
@@ -828,6 +860,7 @@ test_decypharr_config_refreshed_on_rerun
 test_torbox_indexer_url_validated
 test_start_services_returns_nonzero_on_failure
 test_compose_has_cap_drop_on_all_services
+test_compose_s6_overlay_has_cap_add
 test_compose_media_servers_depend_on_decypharr
 test_compose_env_vars_have_defaults
 test_gitignore_has_backup_patterns
