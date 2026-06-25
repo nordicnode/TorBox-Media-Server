@@ -748,15 +748,15 @@ test_compose_s6_overlay_has_cap_add() {
         block=$(grep -A 40 "^  ${svc}:" "$compose_file")
         if ! echo "$block" | grep -q 'cap_add:'; then
             echo "  WARN: $svc missing cap_add (needed for s6-overlay)" >&2
-            missing=$((missing+1))
+            missing=$((missing + 1))
         fi
         if ! echo "$block" | grep -q 'SETGID'; then
             echo "  WARN: $svc missing SETGID in cap_add" >&2
-            missing=$((missing+1))
+            missing=$((missing + 1))
         fi
         if ! echo "$block" | grep -q 'SETUID'; then
             echo "  WARN: $svc missing SETUID in cap_add" >&2
-            missing=$((missing+1))
+            missing=$((missing + 1))
         fi
     done
     if [[ $missing -eq 0 ]]; then
