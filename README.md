@@ -479,7 +479,7 @@ For remote access outside your home network, use a reverse proxy like [Caddy](ht
 - **Authentication is set to `Forms` with `Enabled`** automatically during setup. Secure admin credentials are auto-generated for Radarr, Sonarr, and Prowlarr, ensuring they are protected by default if you choose to expose them to your LAN
 - **The `.env` file** contains your TorBox API key, admin credentials, and *arr API keys — it's `chmod 600` (owner-read only). Don't commit it to version control
 - **Only Decypharr** gets `SYS_ADMIN` capability and FUSE access — other containers only read files via symlinks
-- **Decypharr config is mounted read-write** — the config directory is bind-mounted without `:ro` because Decypharr v2.0 needs to `chown` config.json on startup
+- **Decypharr config directory is mounted to `/app`** — the entire config directory is bind-mounted (not just config.json) because Decypharr v2.0 needs to `chown` config.json, logs, and cache on startup; a file-level bind mount causes `chown` "Operation not permitted" errors
 
 > ⚠️ **Never expose Radarr, Sonarr, Prowlarr, or Decypharr admin UIs to the public internet** without authentication and a reverse proxy with HTTPS. Seerr is designed for this purpose and has its own authentication system.
 
@@ -722,7 +722,7 @@ This usually means Radarr or Sonarr hasn't finished starting yet. Wait a minute 
 - **jq for JSON manipulation** — used to modify *arr config via API; auto-installed as a dependency
 - **Quality profile upgrades enabled** — without this, Radarr/Sonarr won't replace a 720p version with a 1080p one; most users want automatic upgrades
 - **Docker images pinned to specific versions** — image tags are pinned in `docker-compose.yml` to avoid breakage from upstream changes; run `git pull` then re-run `./setup.sh` (Linux) or `.\setup.ps1` (Windows) to pick up newer versions intentionally
-- **Decypharr config mounted read-write** — config.json is bind-mounted without `:ro` because Decypharr v2.0 attempts to `chown` the file on startup, which fails with read-only mounts
+- **Decypharr config directory mounted to `/app`** — the entire `configs/decypharr/` directory is bind-mounted to `/app` (not just `config.json`) because Decypharr v2.0 attempts to `chown` the `/app` directory contents on startup; a file-level bind mount causes "Operation not permitted" errors and crash-loops
 - **Decypharr credentials pre-seeded** — generated during setup and injected into config.json, eliminating manual credential creation
 
 ---

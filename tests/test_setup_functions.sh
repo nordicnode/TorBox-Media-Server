@@ -326,15 +326,19 @@ test_image_versions_not_latest() {
 }
 
 # ============================================================================
-#  Function: docker-compose volume mounts (Decypharr read-only)
+#  Function: docker-compose volume mounts (Decypharr directory mount)
 # ============================================================================
-test_decypharr_config_mount_not_readonly() {
-    # Decypharr v2.0 tries to chown config.json on startup, which fails if
-    # the mount is :ro. The config should be writable.
-    if ! grep -q 'config.json:/app/config.json:ro' "$PROJECT_ROOT/docker-compose.yml" 2>/dev/null; then
-        pass "Decypharr config.json is NOT mounted read-only (compatible with v2.0)"
+test_decypharr_dir_mount() {
+    # Decypharr v2.0 needs to chown /app contents on startup (config.json,
+    # logs, cache). A file-level bind mount for config.json causes "Operation
+    # not permitted" on chown and, if the host file is missing, Docker creates
+    # a directory at the host path — both trigger a crash-loop. The official
+    # Decypharr docs mount the entire config directory to /app.
+    if grep -q 'decypharr:/app' "$PROJECT_ROOT/docker-compose.yml" 2>/dev/null && \
+       ! grep -q 'config.json:/app' "$PROJECT_ROOT/docker-compose.yml" 2>/dev/null; then
+        pass "Decypharr config directory is mounted to /app (compatible with v2.0)"
     else
-        fail "Decypharr config.json is mounted read-only (will crash with v2.0)"
+        fail "Decypharr uses file-level bind mount for config.json (will crash-loop with v2.0 — use directory mount)"
     fi
 }
 
@@ -479,7 +483,7 @@ test_hex_key_validation_with_letters
 echo ""
 echo "--- Docker compose template tests ---"
 test_image_versions_not_latest
-test_decypharr_config_mount_not_readonly
+test_decypharr_dir_mount
 
 echo ""
 echo "--- Feature detection tests ---"
