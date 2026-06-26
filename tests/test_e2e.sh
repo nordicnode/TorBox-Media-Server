@@ -357,8 +357,8 @@ decypharr_block=$(sed -n "/^  decypharr:/,/^  [a-z]/p" "$COMPOSE_FILE")
 if echo "$decypharr_block" | grep -q "user:"; then
     pass "BUG-7 (Issue #23): decypharr has user: directive (avoids root-path chmod crash)"
 else
-    fail "BUG-7 (Issue #23): decypharr missing user: directive"
-    "Entrypoint chmod/chown crashes on restricted bind mounts (e.g. NFS, Linux Mint)"
+    fail "BUG-7 (Issue #23): decypharr missing user: directive" \
+        "Entrypoint chmod/chown crashes on restricted bind mounts (e.g. NFS, Linux Mint)"
 fi
 # ============================================================================
 #  5. CONFIG & DOCUMENTATION TESTS
