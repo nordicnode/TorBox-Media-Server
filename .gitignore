@@ -17,6 +17,7 @@ torbox_backup_*/
 *.log
 *.tmp
 *.swp
+.hermes-fix-in-progress
 
 # Editors
 .vscode/
