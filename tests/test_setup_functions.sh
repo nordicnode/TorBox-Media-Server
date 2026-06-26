@@ -850,6 +850,24 @@ test_manage_sh_restore_prevents_path_traversal() {
     fi
 }
 
+test_decypharr_has_user_directive() {
+    # Issue #23: Decypharr crash loop on chmod/chown "Operation not permitted"
+    # The upstream entrypoint.sh runs as root by default and does NOT use
+    # `|| true` on `chown -R` and `chmod` commands in the root code path.
+    # When /app is a bind mount on certain filesystems (NFS, restricted ext4),
+    # chmod/chown fails with EPERM, and `set -e` causes the container to exit.
+    # Adding `user:` directive makes the entrypoint skip the root code path,
+    # using the non-root path where all chmod/chown are wrapped with `|| true`.
+    local compose_file="${SCRIPT_DIR}/../docker-compose.yml"
+    local decypharr_block
+    decypharr_block=$(sed -n "/^  decypharr:/,/^  [a-z]/p" "$compose_file")
+    if echo "$decypharr_block" | grep -q "user:"; then
+        pass "decypharr service has user: directive (avoids root-path chmod crash)"
+    else
+        fail "decypharr service missing user: directive — entrypoint chmod/chown can crash on restricted mounts"
+    fi
+}
+
 test_mount_path_blocks_home_root_mnt
 test_mount_path_rejects_root_slash
 test_mount_path_rejects_symlink
@@ -869,6 +887,7 @@ test_lint_yml_tests_both_profiles
 test_check_dependencies_warn_only_mode
 test_env_val_strips_inline_comments
 test_manage_sh_restore_prevents_path_traversal
+test_decypharr_has_user_directive
 
 print_summary
 exit $?

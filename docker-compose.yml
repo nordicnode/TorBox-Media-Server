@@ -22,6 +22,7 @@ services:
   decypharr:
     image: ghcr.io/sirrobot01/decypharr:v2.0
     container_name: decypharr
+    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     networks:
       - media-network

@@ -347,6 +347,19 @@ else
     warn "BUG-6: Could not locate cmd_keys heredoc"
 fi
 
+# 4.12 BUG-7 (Issue #23): Decypharr crash loop on chmod "Operation not permitted"
+# When decypharr runs as root (no user: directive), its entrypoint.sh does
+# `chown -R $PUID:$PGID /app` and `chmod 755 /app` WITHOUT || true. On bind
+# mounts where the host filesystem denies chmod/chown, the entrypoint crashes
+# with "Operation not permitted" and set -e causes exit. Adding user: skips the
+# root code path entirely, using the non-root path where chmod/chown use || true.
+decypharr_block=$(sed -n "/^  decypharr:/,/^  [a-z]/p" "$COMPOSE_FILE")
+if echo "$decypharr_block" | grep -q "user:"; then
+    pass "BUG-7 (Issue #23): decypharr has user: directive (avoids root-path chmod crash)"
+else
+    fail "BUG-7 (Issue #23): decypharr missing user: directive"
+    "Entrypoint chmod/chown crashes on restricted bind mounts (e.g. NFS, Linux Mint)"
+fi
 # ============================================================================
 #  5. CONFIG & DOCUMENTATION TESTS
 # ============================================================================
