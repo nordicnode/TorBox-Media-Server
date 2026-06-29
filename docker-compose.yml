@@ -44,6 +44,7 @@ services:
       - SETUID
       - CHOWN
       - DAC_OVERRIDE
+      - DAC_READ_SEARCH
     cap_drop:
       - ALL
     healthcheck:
@@ -112,6 +113,7 @@ services:
   byparr:
     image: ghcr.io/thephaseless/byparr:2.1.0
     container_name: byparr
+    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     networks:
       - media-network
@@ -128,6 +130,12 @@ services:
       - TZ=${TZ:-UTC}
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8191"]
       interval: 30s
@@ -138,7 +146,6 @@ services:
       resources:
         limits:
           memory: 1g
-
   # ── Radarr ─────────────────────────────────────────────────────
   # Movie management - searches, grabs, and organizes movies.
   # Uses Decypharr as its download client (qBittorrent mock).
@@ -259,7 +266,7 @@ services:
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:5055"]
+      test: ["CMD", "curl", "-sf", "http://localhost:5055/api/v1/status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -278,6 +285,7 @@ services:
     image: lscr.io/linuxserver/plex:1.41.5
     profiles: ["plex"]
     container_name: plex
+    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     networks:
       - media-network
@@ -326,6 +334,7 @@ services:
     image: lscr.io/linuxserver/jellyfin:10.10.7
     profiles: ["jellyfin"]
     container_name: jellyfin
+    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     networks:
       - media-network

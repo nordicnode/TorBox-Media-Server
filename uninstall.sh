@@ -30,12 +30,8 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-# Safely read a value from .env without executing shell code
-env_val() {
-    local key="$1"
-    # Use grep and cut to avoid sourcing the file; strip quotes and carriage returns
-    grep "^${key}=" "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'\' | tr -d '\r'
-}
+# Source shared environment parsing library
+source "${SCRIPT_DIR}/lib/env.sh"
 
 # Detect the correct docker compose command
 COMPOSE_CMD=()
@@ -129,8 +125,7 @@ fi
 
 # Remove the Docker network (dynamically computed from project directory name).
 # Docker normalizes the project name: lowercased, with anything outside [a-z0-9_-]
-# stripped (so e.g. "TorBox Media Server" becomes "torboxmediaserver"). Replicate
-# that here so we delete the right network on case-mixed or punctuated paths.
+# stripped. The default install dir 'torbox-media-server' keeps its hyphens.
 project_name="$(basename "${INSTALL_DIR}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 "${DOCKER_CMD[@]}" network rm "${project_name}_media-network" 2>/dev/null || true
 

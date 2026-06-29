@@ -46,6 +46,16 @@ cleanup_on_interrupt() {
         fi
         (cd "${INSTALL_DIR}" && "${COMPOSE_CMD[@]}" --env-file "${ENV_FILE}" down --remove-orphans) 2>/dev/null || true
     fi
+    # Ensure FUSE mount point is unmounted before removing directories
+    # to avoid leaving orphaned FUSE mounts in the kernel.
+    if [[ -n "${MOUNT_DIR:-}" && -d "${MOUNT_DIR}" ]]; then
+        if findmnt -n "${MOUNT_DIR}" &>/dev/null; then
+            log_warn "Unmounting FUSE mount at ${MOUNT_DIR}..."
+            sudo umount -l "${MOUNT_DIR}" 2>/dev/null || true
+            # Wait briefly for kernel to release the mount
+            sleep 1
+        fi
+    fi
     # If setup never completed (.env not written), remove partial installation
     if [[ ! -f "${ENV_FILE:-}" && -d "${INSTALL_DIR:-}" ]]; then
         log_warn "Setup interrupted before completion. Cleaning up partial installation..."
@@ -71,16 +81,8 @@ ENV_FILE="${INSTALL_DIR}/.env"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
 SETUP_COMPLETE_FILE="${INSTALL_DIR}/.setup_complete"
 
-# Source .env variables into the current shell (for SYNC_AUTH_ONLY mode).
-# Only reads values that are NOT already set, so it won't override explicit env vars.
-load_env_if_present() {
-    if [[ -f "${ENV_FILE}" ]]; then
-        set -a
-        # shellcheck disable=SC1090
-        source "${ENV_FILE}"
-        set +a
-    fi
-}
+# Source shared environment parsing library
+source "${SCRIPT_DIR}/lib/env.sh"
 
 # Docker image versions are pinned directly in docker-compose.yml.
 
@@ -591,7 +593,7 @@ gather_config() {
         read -rp "  Plex claim token: " PLEX_CLAIM
         PLEX_CLAIM="${PLEX_CLAIM:-}"
     fi
-    if [[ -n "$PLEX_CLAIM" && ! "$PLEX_CLAIM" =~ ^claim-[a-zA-Z0-9_-]+$ ]]; then
+    if [[ -n "$PLEX_CLAIM" && ! "$PLEX_CLAIM" =~ ^claim-[a-zA-Z0-9._-]+$ ]]; then
         log_error "Invalid Plex claim token format. Tokens start with 'claim-' followed by alphanumeric characters."
         log_error "Please copy it directly from https://www.plex.tv/claim/"
         exit 1
@@ -615,14 +617,21 @@ gather_config() {
         log_error "Mount path cannot be '/'. Using default."
         MOUNT_DIR="/mnt/torbox-media"
     fi
-    # Block system directory prefixes (expanded to include user-data dirs)
-    for prefix in /etc /usr /var /tmp /proc /sys /dev /boot /sbin /bin /lib /lib64 /run /home /root /mnt /media /srv /opt /lost+found; do
+    # Block system directory prefixes (expanded to include user-data dirs).
+    # Note: /mnt, /media, and /srv are standard user mount points — their
+    # subdirectories are allowed, but the exact root path is still blocked.
+    for prefix in /etc /usr /var /tmp /proc /sys /dev /boot /sbin /bin /lib /lib64 /run /home /root /opt /lost+found; do
         if [[ "$MOUNT_DIR" == "$prefix" || "$MOUNT_DIR" == "$prefix"/* ]]; then
             log_error "'${MOUNT_DIR}' is under a system directory. Using default."
             MOUNT_DIR="/mnt/torbox-media"
             break
         fi
     done
+    # Also block the exact root-level mount points (subdirectories are fine)
+    if [[ "$MOUNT_DIR" == "/mnt" || "$MOUNT_DIR" == "/media" || "$MOUNT_DIR" == "/srv" ]]; then
+        log_error "Mount path '${MOUNT_DIR}' is a reserved root-level mount point. Using default."
+        MOUNT_DIR="/mnt/torbox-media"
+    fi
     # Reject unsafe characters in mount path
     if [[ "$MOUNT_DIR" =~ [^a-zA-Z0-9_./-] ]]; then
         log_error "Mount path contains unsafe characters. Using default."
@@ -1385,11 +1394,25 @@ HW_OVERRIDE
     log_info "Docker Compose file set up."
 
     # Validate the Compose file (only if Docker daemon is accessible)
+    # Retry up to 3 times with backoff to handle transient daemon readiness issues.
     if docker info &>/dev/null || sudo docker info &>/dev/null; then
-        if run_with_spinner "Validating Docker Compose file..." compose_cmd config -q; then
+        local _retry=0 _max_retry=3 _delay=2 _validated=false
+        while [[ $_retry -lt $_max_retry ]]; do
+            if run_with_spinner "Validating Docker Compose file..." compose_cmd config -q; then
+                _validated=true
+                break
+            fi
+            _retry=$((_retry + 1))
+            if [[ $_retry -lt $_max_retry ]]; then
+                log_warn "Compose validation failed (attempt $_retry/$_max_retry). Retrying in ${_delay}s..."
+                sleep $_delay
+                _delay=$((_delay * 2))
+            fi
+        done
+        if [[ "$_validated" == "true" ]]; then
             log_info "Docker Compose file validated successfully."
         else
-            log_warn "Docker Compose validation failed. The generated file may have issues."
+            log_warn "Docker Compose validation failed after $_max_retry attempts. The generated file may have issues."
         fi
     else
         log_warn "Docker daemon not accessible. Skipping Compose validation. Run 'docker compose config' to validate manually."
@@ -1430,11 +1453,13 @@ declare -A SVC_LABELS=(
     [radarr]="Radarr" [sonarr]="Sonarr" [seerr]="Seerr"
 )
 
-# Safely read a value from .env without executing shell code
+# Safely read a value from .env without executing shell code.
+# Strips inline comments preceded by whitespace (so passwords containing # are preserved),
+# surrounding quotes (both single and double), carriage returns, and leading/trailing whitespace.
 env_val() {
     local key="$1"
-    # Strip inline comments (everything after an unescaped #) and surrounding quotes
-    grep "^${key}=" "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/#.*$//' | tr -d '"' | tr -d "'" | tr -d '\r'
+    grep "^${key}=" "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- |
+        sed 's/[[:space:]]#.*$//' | tr -d '"' | tr -d "'" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 COMPOSE_CMD=()
@@ -1950,7 +1975,27 @@ DCJSON_EOF
             -d "$dc_json" -o /dev/null && log_info "  Download client 'Decypharr' added to ${name}." ||
             log_warn "  Failed to add download client to ${name}."
     else
-        log_info "  ${name} already has Decypharr download client configured."
+        # Decypharr exists — refresh its password (API key) in case it was rotated on re-run
+        local dc_id
+        dc_id=$(echo "$existing_dc" | jq '.[] | select(.name == "Decypharr") | .id' 2>/dev/null) || true
+        if [[ -n "${dc_id}" ]]; then
+            local dc_current
+            dc_current=$(curl -sf --connect-timeout 5 --max-time 15 -H "X-Api-Key: ${api_key}" "${url}/api/v3/downloadclient/${dc_id}" 2>/dev/null) || true
+            if [[ -n "${dc_current}" ]]; then
+                # Replace the password field value with the current API key
+                local dc_updated
+                dc_updated=$(echo "$dc_current" | jq --arg key "${api_key}" '(.fields[] | select(.name == "password")).value = $key' 2>/dev/null) || true
+                if [[ -n "${dc_updated}" ]]; then
+                    curl -sf --connect-timeout 5 --max-time 15 -X PUT -H "Content-Type: application/json" -H "X-Api-Key: ${api_key}" \
+                        "${url}/api/v3/downloadclient/${dc_id}?forceSave=true" \
+                        -d "$dc_updated" -o /dev/null 2>/dev/null &&
+                        log_info "  Decypharr download client password refreshed for ${name}." ||
+                        log_warn "  Failed to refresh ${name} download client password."
+                fi
+            fi
+        else
+            log_info "  ${name} already has Decypharr download client configured (could not refresh password)."
+        fi
     fi
 
     # Add root folder
@@ -2288,6 +2333,17 @@ configure_seerr() {
         return 1
     fi
 
+    # Seerr requires the setup wizard to be completed before the API
+    # accepts any write requests (Radarr, Sonarr, Plex/Jellyfin config).
+    local _seerr_public
+    _seerr_public=$(curl -sf --connect-timeout 5 --max-time 15 "${seerr_url}/api/v1/settings/public" 2>/dev/null) || true
+    if [[ -n "$_seerr_public" ]] && (echo "$_seerr_public" | grep -qE '"init"\s*:\s*false' 2>/dev/null || \
+        echo "$_seerr_public" | grep -qE '"hasInit"\s*:\s*false' 2>/dev/null); then
+        log_warn "  Seerr setup wizard not yet completed."
+        log_warn "  Open http://localhost:${SVC_PORTS[seerr]} and finish the wizard, then re-run ./setup.sh or run ./manage.sh reset-auth to complete auto-configuration."
+        return 1
+    fi
+
     # Get current Seerr Radarr settings
     local radarr_settings
     radarr_settings=$(curl -sf --connect-timeout 5 --max-time 15 "${seerr_url}/api/v1/settings/radarr" 2>/dev/null) || true
@@ -2391,6 +2447,7 @@ configure_seerr() {
                     "ip": "plex",
                     "port": 32400,
                     "useSsl": false,
+                    "plexToken": "'"${plex_token}"'",
                     "libraries": [],
                     "webAppUrl": "http://localhost:32400/web"
                 }' -o /dev/null 2>/dev/null && log_info "  Plex server added to Seerr." ||
@@ -2434,9 +2491,13 @@ configure_plex_libraries() {
         if [[ -n "$plex_identity" ]]; then
             # Check if Plex has been claimed (has a token)
             local plex_prefs="${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
-            if [[ -f "$plex_prefs" ]] && grep -q 'PlexOnlineToken=' "$plex_prefs" 2>/dev/null; then
-                printf "\r  %-50s\n" ""
-                break
+            if [[ -f "$plex_prefs" ]]; then
+                local _plex_token_tmp
+                _plex_token_tmp=$(sed -n 's/.*PlexOnlineToken="\([^"][^"]*\)".*/\1/p' "$plex_prefs" 2>/dev/null) || true
+                if [[ -n "$_plex_token_tmp" ]]; then
+                    printf "\r  %-50s\n" ""
+                    break
+                fi
             fi
         fi
         printf "\r  %s Waiting for Plex to be claimed... %ds/%ds" "${spin_chars:elapsed/interval%${#spin_chars}:1}" "$elapsed" "$max_wait"
@@ -2527,31 +2588,33 @@ add_default_indexer() {
         log_warn "TORBOX_INDEXER_URL has invalid format (must start with http(s):// and contain only safe chars). Using default."
         indexer_url="https://1337x.to"
     fi
-    curl -sf --connect-timeout 5 --max-time 15 -X POST \
+    local _http_code
+    _http_code=$(curl -sf --connect-timeout 5 --max-time 15 -X POST \
         -H "Content-Type: application/json" \
         -H "X-Api-Key: ${PROWLARR_API_KEY}" \
         "${prowlarr_url}/api/v1/indexer" \
         -d '{
             "name": "1337x",
-            "fields": [
-                {"name": "baseUrl", "value": "'"${indexer_url}"'"},
-                {"name": "apiPath", "value": ""},
-                {"name": "apiKey", "value": ""},
-                {"name": "queryLimit", "value": 0}
-            ],
-            "configContract": "1337xSettings",
             "implementation": "1337x",
-            "implementationName": "1337x",
-            "infoLink": "https://wiki.servarr.com/prowlarr/supported#1337x",
+            "configContract": "1337xSettings",
             "protocol": "torrent",
+            "priority": 25,
+            "enableRss": true,
+            "enableSearch": true,
             "supportsRss": true,
             "supportsSearch": true,
-            "categories": [
-                {"id": 2000, "name": "Movies"},
-                {"id": 5000, "name": "TV"}
-            ]
-        }' -o /dev/null 2>/dev/null && log_info "  Default indexer '1337x' added to Prowlarr (${indexer_url})." ||
-        log_warn "  Failed to add default indexer. You can add indexers manually in Prowlarr."
+            "fields": [
+                {"name": "torrentBaseUrl", "value": "'"${indexer_url}"'"}
+            ],
+            "tags": []
+        }' \
+        -w '%{http_code}' -o /dev/null 2>/dev/null)
+
+    if [[ "$_http_code" == "201" ]]; then
+        log_info "  Default indexer '1337x' added to Prowlarr (${indexer_url})."
+    else
+        log_warn "  Failed to add default indexer (HTTP ${_http_code:-?}). You can add it manually in Prowlarr."
+    fi
 }
 
 # ============================================================================
@@ -2711,17 +2774,16 @@ print_post_install() {
         echo -e "  ${GREEN}✓${NC} Sonarr naming conventions (Plex/Jellyfin compatible)"
         echo -e "  ${GREEN}✓${NC} Sonarr quality profiles (upgrades enabled)"
         echo -e "  ${GREEN}✓${NC} Prowlarr Byparr proxy (FlareSolverr-compatible)"
-        echo -e "  ${GREEN}✓${NC} Prowlarr default indexer (1337x)"
         echo -e "  ${GREEN}✓${NC} Prowlarr Radarr app connection"
         echo -e "  ${GREEN}✓${NC} Prowlarr Sonarr app connection"
-        echo -e "  ${GREEN}✓${NC} Seerr Radarr & Sonarr connection"
+        echo -e "  ${YELLOW}⚠${NC} Seerr Radarr & Sonarr (requires setup wizard completion)"
         if [[ "$MEDIA_SERVER" == "plex" ]]; then
             echo -e "  ${GREEN}✓${NC} Radarr Plex notification (instant library updates)"
             echo -e "  ${GREEN}✓${NC} Sonarr Plex notification (instant library updates)"
             echo -e "  ${GREEN}✓${NC} Plex libraries (Movies + TV Shows)"
-            echo -e "  ${GREEN}✓${NC} Seerr Plex server connection"
+            echo -e "  ${YELLOW}⚠${NC} Seerr Plex server (requires setup wizard completion)"
         else
-            echo -e "  ${GREEN}✓${NC} Seerr Jellyfin server connection"
+            echo -e "  ${YELLOW}⚠${NC} Seerr Jellyfin server (requires setup wizard completion)"
         fi
         echo ""
     fi
@@ -2764,7 +2826,7 @@ print_post_install() {
     if [[ "$SERVICES_STARTED" == "true" ]]; then
         echo -e "   • ${GREEN}Byparr proxy already configured ✓${NC}"
         echo -e "   • ${GREEN}Radarr & Sonarr apps already connected ✓${NC}"
-        echo -e "   • ${GREEN}Default indexer (1337x) already added ✓${NC}"
+        echo -e "   • ${YELLOW}Default indexer (1337x) — add manually in Prowlarr if needed${NC}"
     else
         echo "   • Configure Byparr proxy, Radarr/Sonarr apps, and indexers manually (see README)"
     fi
@@ -2849,12 +2911,12 @@ print_post_install() {
         echo "   • Open http://localhost:5055"
         if [[ "$MEDIA_SERVER" == "plex" ]]; then
             echo "   • Sign in with your Plex account"
-            echo -e "   • ${GREEN}Radarr & Sonarr already connected ✓${NC}"
-            echo -e "   • ${GREEN}Plex server already configured ✓${NC}"
+            echo -e "   • ${GREEN}Setup wizard needs to be completed first${NC}"
+            echo -e "   • ${GREEN}Then Radarr & Sonarr connections will be configured automatically${NC}"
         else
             echo "   • Sign in and connect to Jellyfin"
-            echo -e "   • ${GREEN}Radarr & Sonarr already connected ✓${NC}"
-            echo -e "   • ${GREEN}Jellyfin server already configured ✓${NC}"
+            echo -e "   • ${GREEN}Setup wizard needs to be completed first${NC}"
+            echo -e "   • ${GREEN}Then Jellyfin server will be configured automatically${NC}"
         fi
     else
         echo -e "${CYAN}6. Seerr${NC}"
@@ -2973,24 +3035,24 @@ check_existing_installation() {
         done
         log_info "Backed up existing config files (.bak.${backup_ts})."
 
-        # Safely extract existing API keys using grep+cut (not source)
-        EXISTING_RADARR_API_KEY=$(grep '^RADARR_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_SONARR_API_KEY=$(grep '^SONARR_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_PROWLARR_API_KEY=$(grep '^PROWLARR_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_TORBOX_API_KEY=$(grep '^TORBOX_API_KEY=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_COMPOSE_PROFILES=$(grep '^COMPOSE_PROFILES=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
+        # Safely extract existing values using env_val() (not source)
+        EXISTING_RADARR_API_KEY="$(env_val RADARR_API_KEY)" || true
+        EXISTING_SONARR_API_KEY="$(env_val SONARR_API_KEY)" || true
+        EXISTING_PROWLARR_API_KEY="$(env_val PROWLARR_API_KEY)" || true
+        EXISTING_TORBOX_API_KEY="$(env_val TORBOX_API_KEY)" || true
+        EXISTING_COMPOSE_PROFILES="$(env_val COMPOSE_PROFILES)" || true
 
         # Extract existing admin credentials
-        EXISTING_RADARR_ADMIN_USER=$(grep '^RADARR_ADMIN_USER=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_RADARR_ADMIN_PASS=$(grep '^RADARR_ADMIN_PASS=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_SONARR_ADMIN_USER=$(grep '^SONARR_ADMIN_USER=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_SONARR_ADMIN_PASS=$(grep '^SONARR_ADMIN_PASS=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_PROWLARR_ADMIN_USER=$(grep '^PROWLARR_ADMIN_USER=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
-        EXISTING_PROWLARR_ADMIN_PASS=$(grep '^PROWLARR_ADMIN_PASS=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'") || true
+        EXISTING_RADARR_ADMIN_USER="$(env_val RADARR_ADMIN_USER)" || true
+        EXISTING_RADARR_ADMIN_PASS="$(env_val RADARR_ADMIN_PASS)" || true
+        EXISTING_SONARR_ADMIN_USER="$(env_val SONARR_ADMIN_USER)" || true
+        EXISTING_SONARR_ADMIN_PASS="$(env_val SONARR_ADMIN_PASS)" || true
+        EXISTING_PROWLARR_ADMIN_USER="$(env_val PROWLARR_ADMIN_USER)" || true
+        EXISTING_PROWLARR_ADMIN_PASS="$(env_val PROWLARR_ADMIN_PASS)" || true
 
         # Extract existing Decypharr credentials
-        DECYPHARR_USER=$(grep "^DECYPHARR_USER=" "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d "\"" | tr -d "'") || true
-        DECYPHARR_PASS=$(grep "^DECYPHARR_PASS=" "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d "\"" | tr -d "'") || true
+        DECYPHARR_USER="$(env_val DECYPHARR_USER)" || true
+        DECYPHARR_PASS="$(env_val DECYPHARR_PASS)" || true
 
         # Validate extracted API keys are valid 32-char hex; regenerate if corrupted
         if [[ -n "$EXISTING_RADARR_API_KEY" && ! "$EXISTING_RADARR_API_KEY" =~ ^[0-9a-f]{32}$ ]]; then
