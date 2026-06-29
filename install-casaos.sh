@@ -42,9 +42,11 @@ fi
 if [[ -d "${REPO_DIR}/.git" ]]; then
     log_info "Updating existing repo at ${REPO_DIR}..."
     git -C "${REPO_DIR}" pull --ff-only || {
-        log_warn "Could not fast-forward — resetting to main."
+        log_warn "Could not fast-forward — resetting to default branch."
         git -C "${REPO_DIR}" fetch origin
-        git -C "${REPO_DIR}" reset --hard origin/main
+        _default_branch=$(git -C "${REPO_DIR}" remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p') || true
+        _default_branch="${_default_branch:-main}"
+        git -C "${REPO_DIR}" reset --hard "origin/${_default_branch}"
     }
 else
     log_info "Cloning TorBox Media Server repo..."

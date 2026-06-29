@@ -642,11 +642,18 @@ echo "--- Code review fix tests ---"
 
 test_mount_path_blocks_home_root_mnt() {
     local setup_file="${SCRIPT_DIR}/../setup.sh"
-    # Critical fix: mount path validation must block /home, /root, /mnt, /media, /srv, /opt
-    if grep -q '/home /root /mnt /media /srv /opt' "$setup_file"; then
-        pass "Mount path validation blocks /home, /root, /mnt, /media, /srv, /opt"
+    # Critical fix: mount path validation must block /home, /root, /opt
+    if grep -q '/home /root /opt' "$setup_file"; then
+        pass "Mount path validation blocks /home, /root, /opt"
     else
         fail "Mount path validation missing critical prefixes"
+    fi
+
+    # /mnt, /media, /srv are standard user mount points — subdirectories are allowed
+    if grep -q 'for prefix in.*\/mnt \/media \/srv' "$setup_file"; then
+        fail "Mount path validation wrongly blocks subdirectories of /mnt /media /srv"
+    else
+        pass "Mount path validation allows subdirectories of /mnt /media /srv"
     fi
 }
 
@@ -833,11 +840,12 @@ test_check_dependencies_warn_only_mode() {
 
 test_env_val_strips_inline_comments() {
     local setup_file="${SCRIPT_DIR}/../setup.sh"
-    # Look for the sed expression that strips inline comments (s/#.*$//)
-    if grep -A 4 'env_val()' "$setup_file" | grep -q 's/#'; then
-        pass "env_val strips inline comments"
+    # Look for the sed expression that strips inline comments preceded by whitespace
+    # (s/[[:space:]]#.*$//) - this preserves # inside quoted passwords
+    if grep -A 4 'env_val()' "$setup_file" | grep -q 's/\[\[:space:\]\]#'; then
+        pass "env_val strips inline comments (whitespace-prefixed only)"
     else
-        fail "env_val still includes inline comments"
+        fail "env_val doesn't strip whitespace-prefixed inline comments"
     fi
 }
 

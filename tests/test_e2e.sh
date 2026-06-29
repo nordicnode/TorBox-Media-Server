@@ -327,24 +327,22 @@ else
 fi
 
 # 4.11 BUG-6: manage.sh heredoc must not escape $ in mask_val / $show_secrets
-# The cmd_keys() heredoc uses <<'MANAGE_EOF' (single-quoted), which means
+# The manage.sh heredoc uses <<'MANAGE_EOF' (single-quoted), which means
 # bash does NOT expand variables — they are literal in the output file.
 # If setup.sh contains \$ inside a single-quoted heredoc, the generated
 # manage.sh will print literal $ instead of executing $(mask_val ...).
-cmd_keys_block=$(sed -n '/cmd_keys()/,/^}/p' "$SETUP_SCRIPT")
-if echo "$cmd_keys_block" | grep -qE '<<.MANAGE_EOF'; then
-    # Find use of mask_val or $show_secrets inside the heredoc
-    heredoc_body=$(sed -n '/<<.*MANAGE_EOF/,/^MANAGE_EOF$/p' "$SETUP_SCRIPT")
-    if echo "$heredoc_body" | grep -qE '\\\$\([^)]*mask_val'; then
-        fail "BUG-6: mask_val call escaped as \\\$(mask_val) inside <<'MANAGE_EOF'" \
+manage_heredoc=$(awk "/cat >.*manage.sh.*<<'MANAGE_EOF'/,/^MANAGE_EOF$/" "$SETUP_SCRIPT" 2>/dev/null || true)
+if [[ -n "$manage_heredoc" ]]; then
+    if echo "$manage_heredoc" | grep -qE '\\\$\([^)]*mask_val'; then
+        fail "BUG-6: mask_val call escaped as \\$(mask_val) inside <<'MANAGE_EOF'" \
             "Generated manage.sh will print literal \$(mask_val) text"
-    elif echo "$heredoc_body" | grep -qE '^\s+echo.*\$\(mask_val'; then
+    elif echo "$manage_heredoc" | grep -qE '\$\(mask_val'; then
         pass "BUG-6: mask_val call correctly unescaped in heredoc"
     else
         warn "BUG-6: Could not locate mask_val call in manage.sh heredoc"
     fi
 else
-    warn "BUG-6: Could not locate cmd_keys heredoc"
+    warn "BUG-6: Could not locate manage.sh heredoc"
 fi
 
 # 4.12 BUG-7 (Issue #23): Decypharr crash loop on chmod "Operation not permitted"
@@ -623,7 +621,7 @@ fi
 # ============================================================================
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-total=$((passed + failed))
+total=$((passed + failed + warnings))
 echo -e "  \033[0;32m${passed} passed\033[0m  \033[0;31m${failed} failed\033[0m  \033[1;33m${warnings} warnings\033[0m  (${total} total)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
