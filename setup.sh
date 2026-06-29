@@ -2337,7 +2337,7 @@ configure_seerr() {
     # accepts any write requests (Radarr, Sonarr, Plex/Jellyfin config).
     local _seerr_public
     _seerr_public=$(curl -sf --connect-timeout 5 --max-time 15 "${seerr_url}/api/v1/settings/public" 2>/dev/null) || true
-    if [[ -n "$_seerr_public" ]] && (echo "$_seerr_public" | grep -qE '"init"\s*:\s*false' 2>/dev/null || \
+    if [[ -n "$_seerr_public" ]] && (echo "$_seerr_public" | grep -qE '"init"\s*:\s*false' 2>/dev/null ||
         echo "$_seerr_public" | grep -qE '"hasInit"\s*:\s*false' 2>/dev/null); then
         log_warn "  Seerr setup wizard not yet completed."
         log_warn "  Open http://localhost:${SVC_PORTS[seerr]} and finish the wizard, then re-run ./setup.sh or run ./manage.sh reset-auth to complete auto-configuration."
