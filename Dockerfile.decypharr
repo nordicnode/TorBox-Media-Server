@@ -2,8 +2,8 @@
 #  Dockerfile.decypharr
 #
 #  Thin wrapper around the upstream Decypharr image that adds a /etc/passwd
-#  entry for UID 1000 ("appuser").  This is required because the container is
-#  run as UID 1000 (via `user: PUID:PGID` in docker-compose.yml) and
+#  entry for the runtime UID ("appuser").  This is required because the
+#  container runs as `PUID:PGID` (via docker-compose.yml) and
 #  fusermount3 calls `id -un` to resolve the username before mounting the
 #  FUSE filesystem.  Without a matching passwd entry fusermount3 exits with:
 #
@@ -15,9 +15,11 @@
 ARG DECYPHARR_VERSION=v2.4
 FROM ghcr.io/sirrobot01/decypharr:${DECYPHARR_VERSION}
 
+ARG APP_UID=1000
+
 # adduser flags:
-#   -u 1000   match the PUID used at runtime
+#   -u APP_UID  match the PUID used at runtime
 #   -D        no password (daemon account)
 #   -H        do not create a home directory
 #   -s /bin/sh  minimal shell (required by some FUSE helpers)
-RUN adduser -u 1000 -D -H -s /bin/sh appuser
+RUN adduser -u "${APP_UID}" -D -H -s /bin/sh appuser

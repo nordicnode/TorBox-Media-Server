@@ -30,6 +30,7 @@ services:
       dockerfile: Dockerfile.decypharr
       args:
         DECYPHARR_VERSION: "v2.4"
+        APP_UID: "${PUID:-1000}"
     image: torbox-decypharr:v2.4
     container_name: decypharr
     user: "${PUID:-1000}:${PGID:-1000}"
