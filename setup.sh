@@ -1319,8 +1319,9 @@ ENV_EOF
 generate_docker_compose() {
     log_step "Setting up Docker Compose..."
 
-    # Copy static compose file from repo to install directory
+    # Copy static compose file and its local build context to install directory
     cp "${SCRIPT_DIR}/docker-compose.yml" "${COMPOSE_FILE}"
+    cp "${SCRIPT_DIR}/Dockerfile.decypharr" "${INSTALL_DIR}/Dockerfile.decypharr"
 
     # Ensure no ghost overrides remain from previous installations
     rm -f "${INSTALL_DIR}/docker-compose.override.yml"

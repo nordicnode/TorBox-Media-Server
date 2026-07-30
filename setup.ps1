@@ -557,6 +557,16 @@ function Invoke-GenerateDockerCompose {
     Copy-Item -Path $SourceFile -Destination $ComposeFile -Force
     Write-LogInfo "Copied docker-compose.yml to: $ComposeFile"
 
+    $DockerfileSource = Join-Path $ScriptDir "Dockerfile.decypharr"
+    $DockerfileDestination = Join-Path $InstallDir "Dockerfile.decypharr"
+    if (-not (Test-Path $DockerfileSource)) {
+        Write-LogWarn "Source Dockerfile.decypharr not found at: $DockerfileSource"
+        Write-LogStep "Failed to set up Docker Compose."
+        return
+    }
+    Copy-Item -Path $DockerfileSource -Destination $DockerfileDestination -Force
+    Write-LogInfo "Copied Dockerfile.decypharr to: $DockerfileDestination"
+
     $OverrideFile = Join-Path $InstallDir "docker-compose.override.yml"
     if (Test-Path $OverrideFile) { Remove-Item -Path $OverrideFile -Force }
 
