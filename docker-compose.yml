@@ -291,11 +291,15 @@ services:
   # ── Plex ───────────────────────────────────────────────────────
   # Media server option 1 - streams your library to any device.
   # Activated via COMPOSE_PROFILES=plex in .env
+  #
+  # NOTE: linuxserver.io images must NOT run with a compose `user:` directive.
+  # Their s6-overlay needs to start as root and drop privileges via PUID/PGID;
+  # forcing `user:` makes s6-chmod fail on root-owned dirs (/run) and the
+  # container crash-loops. Same applies to the jellyfin service below.
   plex:
     image: lscr.io/linuxserver/plex:1.43.2
     profiles: ["plex"]
     container_name: plex
-    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     networks:
       - media-network
@@ -344,7 +348,6 @@ services:
     image: lscr.io/linuxserver/jellyfin:10.11.10
     profiles: ["jellyfin"]
     container_name: jellyfin
-    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     networks:
       - media-network
