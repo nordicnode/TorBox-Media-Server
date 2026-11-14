@@ -1319,8 +1319,13 @@ ENV_EOF
 generate_docker_compose() {
     log_step "Setting up Docker Compose..."
 
-    # Copy static compose file from repo to install directory
+    # Copy static compose file and its local build context to install directory
     cp "${SCRIPT_DIR}/docker-compose.yml" "${COMPOSE_FILE}"
+    if [[ -f "${SCRIPT_DIR}/Dockerfile.decypharr" ]]; then
+        cp "${SCRIPT_DIR}/Dockerfile.decypharr" "${INSTALL_DIR}/Dockerfile.decypharr"
+    else
+        log_warn "Dockerfile.decypharr not found in ${SCRIPT_DIR}; decypharr local build may fail."
+    fi
 
     # Ensure no ghost overrides remain from previous installations
     rm -f "${INSTALL_DIR}/docker-compose.override.yml"
@@ -1668,7 +1673,7 @@ case "${1:-help}" in
     start)
         echo -e "${GREEN}Starting all services...${NC}"
         ensure_mount_propagation
-        compose_cmd up -d --remove-orphans
+        compose_cmd up -d --build --remove-orphans
         show_urls
         ;;
     stop)
@@ -1677,8 +1682,10 @@ case "${1:-help}" in
         ;;
     restart)
         echo -e "${YELLOW}Restarting all services...${NC}"
-        compose_cmd stop
         ensure_mount_propagation
+        # Build local images before stopping so a build failure doesn't leave the stack down.
+        compose_cmd build decypharr 2>/dev/null || compose_cmd build decypharr
+        compose_cmd stop
         compose_cmd up -d --remove-orphans
         show_urls
         ;;
@@ -1694,13 +1701,23 @@ case "${1:-help}" in
         ;;
     pull)
         echo -e "${GREEN}Pulling pinned images...${NC}"
-        compose_cmd pull
+        # Pull only non-buildable services; decypharr is built locally.
+        if compose_cmd pull --help 2>&1 | grep -q -- '--ignore-buildable'; then
+            compose_cmd pull --ignore-buildable
+        else
+            compose_cmd pull --ignore-pull-failures || compose_cmd pull
+        fi
         ;;
     update)
         echo -e "${GREEN}Updating all services...${NC}"
         ensure_mount_propagation
-        compose_cmd pull
-        compose_cmd up -d --remove-orphans
+        compose_cmd build --pull decypharr 2>/dev/null || compose_cmd build decypharr || true
+        if compose_cmd pull --help 2>&1 | grep -q -- '--ignore-buildable'; then
+            compose_cmd pull --ignore-buildable
+        else
+            compose_cmd pull --ignore-pull-failures || true
+        fi
+        compose_cmd up -d --remove-orphans --build
         show_urls
         ;;
     down)
@@ -1889,8 +1906,8 @@ EnvironmentFile=${ENV_FILE}
 ExecStartPre=/bin/bash -c "findmnt -n '\$MOUNT_DIR' >/dev/null 2>&1 || mount --bind '\$MOUNT_DIR' '\$MOUNT_DIR'"
 ExecStartPre=/bin/bash -c "mount --make-shared '\$MOUNT_DIR'"
 
-# Step 2: Start all containers (foreground so systemd tracks the process)
-ExecStart=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" up --remove-orphans
+# Step 2: Build local images if needed, then start all containers (foreground so systemd tracks the process)
+ExecStart=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" up --build --remove-orphans
 
 # On stop: bring containers down gracefully
 ExecStop=${docker_bin} ${compose_args} --env-file "${ENV_FILE}" stop
@@ -3119,10 +3136,10 @@ start_services() {
         read -rp "Start all services now? [Y/n]: " start_now
     fi
     if [[ "${start_now,,}" != "n" ]]; then
-        log_step "Starting Docker containers (first run downloads ~5-8 GB of images, this may take several minutes)..."
-        if ! compose_cmd up -d --remove-orphans; then
-            log_error "Failed to start services. Check your internet connection and disk space."
-            log_error "Try running: cd ${INSTALL_DIR} && docker compose --env-file .env -f docker-compose.yml up -d"
+        log_step "Starting Docker containers (first run downloads ~5-8 GB of images and builds Decypharr locally, this may take several minutes)..."
+        if ! compose_cmd up -d --build --remove-orphans; then
+            log_error "Failed to start services. Check your internet connection, disk space, and Docker build tools."
+            log_error "Try running: cd ${INSTALL_DIR} && docker compose --env-file .env -f docker-compose.yml up -d --build"
             # Return non-zero so main() knows services didn't start — configs are
             # already written, so we DO want .setup_complete to be touched (the
             # install is structurally complete), but we should not silently
