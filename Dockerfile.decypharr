@@ -17,9 +17,20 @@ FROM ghcr.io/sirrobot01/decypharr:${DECYPHARR_VERSION}
 
 ARG APP_UID=1000
 
-# adduser flags:
-#   -u APP_UID  match the PUID used at runtime
-#   -D        no password (daemon account)
-#   -H        do not create a home directory
-#   -s /bin/sh  minimal shell (required by some FUSE helpers)
-RUN adduser -u "${APP_UID}" -D -H -s /bin/sh appuser
+# Ensure a passwd entry exists for the runtime UID (required by fusermount3's
+# `id -un` lookup). Reuse any existing account for APP_UID (e.g. root UID 0).
+# BusyBox adduser also fails if the UID number collides with an existing group
+# when no group is specified, so create/use a dedicated appuser group.
+RUN set -eu; \
+    existing_user="$(awk -F: -v uid="${APP_UID}" '$3 == uid { print $1; exit }' /etc/passwd || true)"; \
+    if [ -n "${existing_user}" ]; then \
+        echo "Using existing passwd entry '${existing_user}' for UID ${APP_UID}"; \
+    else \
+        existing_group="$(awk -F: -v gid="${APP_UID}" '$3 == gid { print $1; exit }' /etc/group || true)"; \
+        if [ -n "${existing_group}" ]; then \
+            adduser -u "${APP_UID}" -G "${existing_group}" -D -H -s /bin/sh appuser; \
+        else \
+            addgroup -g "${APP_UID}" appuser; \
+            adduser -u "${APP_UID}" -G appuser -D -H -s /bin/sh appuser; \
+        fi; \
+    fi

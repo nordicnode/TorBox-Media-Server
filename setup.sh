@@ -1682,9 +1682,11 @@ case "${1:-help}" in
         ;;
     restart)
         echo -e "${YELLOW}Restarting all services...${NC}"
-        compose_cmd stop
         ensure_mount_propagation
-        compose_cmd up -d --build --remove-orphans
+        # Build local images before stopping so a build failure doesn't leave the stack down.
+        compose_cmd build decypharr 2>/dev/null || compose_cmd build decypharr
+        compose_cmd stop
+        compose_cmd up -d --remove-orphans
         show_urls
         ;;
     status)
